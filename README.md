@@ -1,6 +1,5 @@
 <p align="center">
-  <!-- TODO: 換成正式 GoMore logo -->
-  <img src="https://raw.githubusercontent.com/kao273183/gomore-qa-master/main/assets/logo.png" alt="gomore-qa-master logo" width="180" />
+  <img src="https://raw.githubusercontent.com/stonebomdic/GoMore-QA-Master/main/assets/GoMore%20Logo_black.png" alt="GoMore QA Master logo" width="180" />
 </p>
 
 <h1 align="center">GoMore QA Master</h1>
@@ -91,7 +90,7 @@ Two paths — pick the one that matches how you'll use it.
 ### A. Install from internal Git
 
 ```bash
-pip install git+ssh://git@<INTERNAL_GIT_HOST>/gomore-qa-master.git
+pip install git+https://github.com/stonebomdic/GoMore-QA-Master.git
 playwright install                # only if you use pytest-playwright
 pip install pytest-rerunfailures  # optional, enables auto-retry
 ```
@@ -106,7 +105,7 @@ Then point your client config at the same Python interpreter:
 ### B. Run from a local clone (for contributors / hacking)
 
 ```bash
-git clone ssh://git@<INTERNAL_GIT_HOST>/gomore-qa-master.git
+git clone https://github.com/stonebomdic/GoMore-QA-Master.git
 cd gomore-qa-master
 pip install -e .
 playwright install                # only if you use pytest-playwright

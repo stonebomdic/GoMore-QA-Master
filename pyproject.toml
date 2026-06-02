@@ -36,7 +36,7 @@ dependencies = [
 api = ["schemathesis>=3.0,<4"]
 
 [project.urls]
-Repository = "git+ssh://git@<INTERNAL_GIT_HOST>/gomore-qa-master.git"
+Repository = "git+https://github.com/stonebomdic/GoMore-QA-Master.git"
 
 [project.scripts]
 gomore-qa-master = "gomore_qa_master.server:run"

@@ -1,6 +1,5 @@
 <p align="center">
-  <!-- TODO: 換成正式 GoMore logo -->
-  <img src="https://raw.githubusercontent.com/kao273183/gomore-qa-master/main/assets/logo.png" alt="GoMore QA Master logo" width="180" />
+  <img src="https://raw.githubusercontent.com/stonebomdic/GoMore-QA-Master/main/assets/GoMore%20Logo_black.png" alt="GoMore QA Master logo" width="180" />
 </p>
 
 <h1 align="center">GoMore QA Master</h1>
@@ -61,7 +60,7 @@
 ### A. 從內部 Git 安裝
 
 ```bash
-pip install git+ssh://git@<INTERNAL_GIT_HOST>/gomore-qa-master.git
+pip install git+https://github.com/stonebomdic/GoMore-QA-Master.git
 playwright install                # pytest-playwright 才需要
 pip install pytest-rerunfailures  # 選用，啟用自動 retry
 ```
@@ -76,7 +75,7 @@ client config 指向同一個 Python：
 ### B. 從本地 clone 跑（給貢獻者 / 想 hack 的人）
 
 ```bash
-git clone ssh://git@<INTERNAL_GIT_HOST>/gomore-qa-master.git
+git clone https://github.com/stonebomdic/GoMore-QA-Master.git
 cd gomore-qa-master
 pip install -e .
 playwright install                # pytest-playwright 才需要

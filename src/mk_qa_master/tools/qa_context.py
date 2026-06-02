@@ -447,22 +447,11 @@ _UNIVERSAL_METHODOLOGY_ZH = """## ISTQB 七大測試原則
 - mk-qa-master 的 optimizer 看到連續因 CAPTCHA 失敗 -> 分類為 `external` 而非 `broken` / `flaky`
 - CI 階段 skip CAPTCHA 後路徑，local dev 走 Tier 3 手動或 AI 視覺判斷
 
-### Tier 3：AI 視覺判斷 (v0.7.0+) — 最後手段
+### Tier 3：AI 視覺判斷 — 最後手段
 
-mk-qa-master 計劃中的 `solve_visual_challenge` tool：
-
-1. 偵測 CAPTCHA iframe (reCAPTCHA v2 / hCaptcha 圖片格)
-2. 截圖 challenge + 抓 tile selectors
-3. 把截圖回傳給 AI client (Claude / Cursor — 自帶 vision)
-4. AI 看圖回「點 [0, 4, 7] 號 tile」
-5. Runner 執行 click 鏈、提交、繼續
-
-**限制：**
-
-- 對 reCAPTCHA v2 / hCaptcha 圖片題可行，成功率 60-80%
-- 對 reCAPTCHA v3 / Cloudflare Turnstile **無題目可看** (純行為打分)，只能靠 stealth plugin + 真實滑鼠軌跡 + IP 信譽
-- Google 偵測到自動化會 ban session/IP，**不可在 production 跑**
-- 法律：**自己的站或客戶授權站才能用**，第三方站涉及 TOS 違反
+- 偵測到 CAPTCHA 後，截圖整個頁面並標記 test 為 `visual_challenge`
+- 把截圖回傳給 AI client (Claude / Cursor — 自帶 vision) 人工判斷
+- **限制：** 對 reCAPTCHA v3 / Cloudflare Turnstile 無視覺題目可用；Google 偵測自動化可能 ban session/IP；**僅限自己的站或客戶授權站**
 
 ### 決策流程
 
@@ -895,22 +884,11 @@ CAPTCHA (reCAPTCHA / hCaptcha / Cloudflare Turnstile) is where automated test ru
 - mk-qa-master's optimizer classifies consecutive CAPTCHA-caused failures as `external` rather than `broken` or `flaky`
 - Skip CAPTCHA-protected paths in CI; use Tier 3 (manual or AI vision) only on local dev
 
-### Tier 3: AI visual judgment (v0.7.0+) — last resort
+### Tier 3: AI visual judgment — last resort
 
-The planned `solve_visual_challenge` tool in mk-qa-master:
-
-1. Detect the CAPTCHA iframe (reCAPTCHA v2 / hCaptcha image grid)
-2. Screenshot the challenge + extract tile selectors
-3. Return the screenshot to the AI client (Claude / Cursor — already vision-capable)
-4. AI replies "click tiles [0, 4, 7]"
-5. Runner executes the click chain, submits, continues
-
-**Constraints:**
-
-- Workable on reCAPTCHA v2 / hCaptcha image grids, 60–80% success rate
-- **Not workable** on reCAPTCHA v3 or Cloudflare Turnstile — no visible challenge, only behavior scoring. Mitigation is stealth plugins + realistic mouse movement + IP reputation, not visual solving.
-- Google may ban sessions / IPs that look automated — **do not run against production**
-- Legal: only on your own sites, or client sites with explicit authorization. Third-party sites usually violate TOS.
+- Detect the CAPTCHA, screenshot the full page, mark the test as `visual_challenge`
+- Return the screenshot to the AI client (Claude / Cursor — already vision-capable) for manual judgment
+- **Constraints:** reCAPTCHA v3 / Cloudflare Turnstile have no visual challenge to solve; Google may ban automated sessions/IPs; **only on your own sites or client-authorized sites**
 
 ### Decision flow
 

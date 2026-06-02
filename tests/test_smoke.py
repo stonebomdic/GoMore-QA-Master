@@ -60,10 +60,8 @@ def test_list_tools_returns_advertised_surface():
 
 
 def test_list_tools_count_matches_advertised_19():
-    """If the count drifts, README and the family-site claim of '19 tools'
-    is stale. Catch that here before users do.
-    v0.8.0 brought the count from 16 to 19 (run_api_security_scan; visual challenge removed).
-    v0.9.1 brought it from 17 to 19 (qa_plan + verify_plan).
+    """If the count drifts, README and the family-site claim must be updated in lockstep.
+    Current advertised surface is 19 tools (CAPTCHA solver removed in the GoMore fork).
     """
     from mk_qa_master.server import list_tools
 
@@ -210,7 +208,6 @@ def test_captcha_section_present_in_both_languages():
     assert "## CAPTCHA Testing Strategy" in en_built
     assert "Tier 1" in en_built and "Tier 2" in en_built and "Tier 3" in en_built
     assert "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI" in en_built  # Google test key
-    assert "solve_visual_challenge" in en_built  # forward-pointer to v0.7
 
     # zh-TW side
     assert "## 驗證碼 (CAPTCHA) 測試策略" in zh_built

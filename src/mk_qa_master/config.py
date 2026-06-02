@@ -110,7 +110,6 @@ except ValueError:
     POSTMAN_TIMEOUT_REQUEST_MS = 30000
 
 
-
 def connect_android_host(timeout_s: float = 10.0) -> tuple[bool, str]:
     """Ensure the configured remote-ADB endpoint is paired before Maestro runs.
 

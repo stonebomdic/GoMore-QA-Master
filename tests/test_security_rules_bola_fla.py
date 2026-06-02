@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mk_qa_master.security_rules import (
+from gomore_qa_master.security_rules import (
     APIClient,
     AuthPair,
     OperationContext,
@@ -13,7 +13,7 @@ from mk_qa_master.security_rules import (
     bola_rule,
     function_authz_rule,
 )
-from mk_qa_master.security_rules.bola import (
+from gomore_qa_master.security_rules.bola import (
     _count_path_params,
     _matches_admin_pattern,
     _substitute_first_path_param,

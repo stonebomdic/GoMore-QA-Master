@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
-from mk_qa_master.tools import qa_plan
-from mk_qa_master.tools.qa_plan import (
+from gomore_qa_master.tools import qa_plan
+from gomore_qa_master.tools.qa_plan import (
     _CACHE_MAX,
     _CACHE_TTL_SECONDS,
     _ACTIVE_PLANS,

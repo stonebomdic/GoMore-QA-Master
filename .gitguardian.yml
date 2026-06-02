@@ -1,6 +1,6 @@
 version: 2
 
-# GitGuardian configuration for mk-qa-master.
+# GitGuardian configuration for gomore-qa-master.
 #
 # We document Google's OFFICIAL PUBLIC reCAPTCHA test keys in the
 # knowledge layer / README / PRDs so QA engineers reading the docs

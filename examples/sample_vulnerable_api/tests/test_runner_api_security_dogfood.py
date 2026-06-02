@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 import requests
 
-from mk_qa_master.runners.api_security import run_scan
+from gomore_qa_master.runners.api_security import run_scan
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 SPEC_PATH = str(Path(__file__).resolve().parents[1] / "openapi.yaml")

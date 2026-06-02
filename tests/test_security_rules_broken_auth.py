@@ -13,13 +13,13 @@ from unittest.mock import MagicMock
 import jwt as pyjwt
 import pytest
 
-from mk_qa_master.security_rules import (
+from gomore_qa_master.security_rules import (
     APIClient,
     BrokenAuthRule,
     OperationContext,
     Severity,
 )
-from mk_qa_master.security_rules.broken_auth import (
+from gomore_qa_master.security_rules.broken_auth import (
     _ATTACKER_SECRET,
     _encode_wrong_sig_jwt,
     _forge_alg_none_jwt,

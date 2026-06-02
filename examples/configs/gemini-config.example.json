@@ -1,9 +1,9 @@
 {
   "_comment": "Gemini CLI MCP config — Location: ~/.gemini/settings.json",
   "mcpServers": {
-    "mk-qa-master": {
+    "gomore-qa-master": {
       "command": "uvx",
-      "args": ["mk-qa-master"],
+      "args": ["gomore-qa-master"],
       "env": {
         "QA_RUNNER": "pytest",
         "QA_PROJECT_ROOT": "/absolute/path/to/your-test-project"

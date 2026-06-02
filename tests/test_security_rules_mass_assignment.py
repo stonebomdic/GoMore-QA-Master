@@ -5,14 +5,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mk_qa_master.security_rules import (
+from gomore_qa_master.security_rules import (
     APIClient,
     MassAssignmentRule,
     OperationContext,
     Severity,
     mass_assignment_rule as rule,
 )
-from mk_qa_master.security_rules.mass_assignment import (
+from gomore_qa_master.security_rules.mass_assignment import (
     DEFAULT_DANGEROUS_FIELDS,
     _classify,
     _extract_json_schema,

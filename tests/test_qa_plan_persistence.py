@@ -21,8 +21,8 @@ from unittest.mock import patch
 
 import pytest
 
-from mk_qa_master.tools import qa_plan
-from mk_qa_master.tools.qa_plan import (
+from gomore_qa_master.tools import qa_plan
+from gomore_qa_master.tools.qa_plan import (
     _CACHE_TTL_SECONDS,
     _persistence_enabled,
     _plans_dir,
@@ -62,7 +62,7 @@ def test_persistence_off_by_default_without_project_root():
 
 
 def test_persistence_on_by_default_when_project_root_set(monkeypatch, tmp_path):
-    """QA_PROJECT_ROOT set → "mk-qa-master is configured" → persist by default."""
+    """QA_PROJECT_ROOT set → "gomore-qa-master is configured" → persist by default."""
     monkeypatch.setenv("QA_PROJECT_ROOT", str(tmp_path))
     assert _persistence_enabled() is True
 
@@ -134,7 +134,7 @@ def test_persist_writes_plan_json_with_schema_marker(monkeypatch, tmp_path):
     persisted = Path(result["persisted_to"])
     assert persisted.is_file()
     data = json.loads(persisted.read_text(encoding="utf-8"))
-    assert data["_schema"] == "mk-qa-master.plan.v1"
+    assert data["_schema"] == "gomore-qa-master.plan.v1"
     assert data["task"] == "Custom task"
     assert data["kind"] == "scan"
     assert len(data["critical_points"]) == 2

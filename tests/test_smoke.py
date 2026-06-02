@@ -1,4 +1,4 @@
-"""Smoke tests for mk-qa-master.
+"""Smoke tests for gomore-qa-master.
 
 Catches the "easy" regressions that an MCP catalog or first-time user will
 hit before they get to a real test run:
@@ -31,9 +31,6 @@ EXPECTED_TOOLS = {
     "init_qa_knowledge",
     "get_qa_context",
     "auto_generate_tests",
-    # v0.7.0 — AI Visual Challenge Solver (reCAPTCHA v2 image-grid)
-    "inspect_visual_challenge",
-    "solve_visual_challenge",
     # v0.8.0 — OWASP API Security Top 10 rule-based scanner
     "run_api_security_scan",
     # v0.9.1 — Plan-then-verify critical-points pattern (Webwright-inspired)
@@ -43,80 +40,34 @@ EXPECTED_TOOLS = {
 
 
 def test_package_importable():
-    import mk_qa_master  # noqa: F401
-    import mk_qa_master.server  # noqa: F401
+    import gomore_qa_master  # noqa: F401
+    import gomore_qa_master.server  # noqa: F401
 
 
 def test_server_instantiable():
-    from mk_qa_master.server import app
+    from gomore_qa_master.server import app
 
     assert app is not None
-    assert app.name == "mk-qa-master"
+    assert app.name == "gomore-qa-master"
 
 
 def test_list_tools_returns_advertised_surface():
-    from mk_qa_master.server import list_tools
+    from gomore_qa_master.server import list_tools
 
     declared = {t.name for t in asyncio.run(list_tools())}
     missing = EXPECTED_TOOLS - declared
     assert not missing, f"Expected tools missing from list_tools(): {missing}"
 
 
-def test_list_tools_count_matches_advertised_21():
-    """If the count drifts, README and the family-site claim of '21 tools'
-    is stale. Catch that here before users do.
-    v0.7.0 brought the count from 16 to 18 (visual challenge solver).
-    v0.8.0 brought it from 18 to 19 (run_api_security_scan).
-    v0.9.1 brought it from 19 to 21 (qa_plan + verify_plan).
+def test_list_tools_count_matches_advertised_19():
+    """If the count drifts, README and the family-site claim must be updated in lockstep.
+    Current advertised surface is 19 tools (CAPTCHA solver removed in the GoMore fork).
     """
-    from mk_qa_master.server import list_tools
+    from gomore_qa_master.server import list_tools
 
     declared = {t.name for t in asyncio.run(list_tools())}
-    assert len(declared) == 21, f"Expected 21 tools, got {len(declared)}: {sorted(declared)}"
+    assert len(declared) == 19, f"Expected 19 tools, got {len(declared)}: {sorted(declared)}"
 
-
-def test_visual_challenge_tools_registered():
-    """v0.7.0: both new visual-challenge tools must be present in
-    list_tools() and mapped in the dispatch table. The second half
-    matters because a typo'd name in `_dispatch` would silently fall
-    through to the «unknown tool» branch."""
-    import asyncio as _asyncio
-    from mcp.types import TextContent
-
-    from mk_qa_master.server import list_tools, _dispatch
-
-    declared = {t.name for t in _asyncio.run(list_tools())}
-    assert "inspect_visual_challenge" in declared
-    assert "solve_visual_challenge" in declared
-
-    # Dispatch table mapping — calling the tool without env consent should
-    # produce a structured `consent_required` error rather than the
-    # "未知的 tool" fallback. That confirms the name is wired into the
-    # dispatcher.
-    out = _asyncio.run(_dispatch("inspect_visual_challenge", {}))
-    assert isinstance(out, list) and isinstance(out[0], TextContent)
-    assert "未知的 tool" not in out[0].text
-
-
-def test_consent_gate_blocks_without_env(monkeypatch):
-    """Without QA_VISUAL_CHALLENGE_CONSENT=true the tool must refuse with
-    the full disclaimer text — the AI client uses that text to surface
-    consent to the user. This is the §21 #2 ratification: server-level
-    consent on top of per-call confirm latch."""
-    import importlib
-
-    monkeypatch.delenv("QA_VISUAL_CHALLENGE_CONSENT", raising=False)
-
-    import mk_qa_master.config as cfg
-    importlib.reload(cfg)
-
-    from mk_qa_master.tools import visual_challenge as vc
-    importlib.reload(vc)
-
-    result = vc.inspect_visual_challenge_tool({})
-    assert result["error"] == "consent_required"
-    assert "QA_VISUAL_CHALLENGE_CONSENT" in result["hint"]
-    assert "ACCEPTABLE USE" in result["hint"]
 
 
 def test_schemathesis_runner_registered():
@@ -127,7 +78,7 @@ def test_schemathesis_runner_registered():
     The runner class itself imports `schemathesis` lazily inside its
     methods, so this assertion is safe even when the optional
     `[api]` extra isn't installed."""
-    from mk_qa_master.runners import REGISTRY
+    from gomore_qa_master.runners import REGISTRY
 
     assert "schemathesis" in REGISTRY, (
         f"schemathesis runner not registered. Available: {sorted(REGISTRY)}"
@@ -148,7 +99,7 @@ def test_qa_lang_switches_builtin_methodology():
     'zh_TW', 'CN') normalize to 'zh-tw' via config.py; invalid values
     fall back to 'en' rather than raising — we'd rather serve the wrong
     language than crash the server boot."""
-    from mk_qa_master.tools.qa_context import _builtin_for_lang
+    from gomore_qa_master.tools.qa_context import _builtin_for_lang
 
     en_built = _builtin_for_lang("en")
     zh_built = _builtin_for_lang("zh-tw")
@@ -174,7 +125,7 @@ def test_qa_lang_alias_normalization():
     config.py under different env values."""
     import importlib
     import os
-    import mk_qa_master.config as cfg
+    import gomore_qa_master.config as cfg
 
     original = os.environ.get("QA_LANG")
     try:
@@ -203,7 +154,7 @@ def test_api_methodology_section_present_in_both_languages():
     """v0.6.2 adds an API Testing Methodology section in both languages.
     The English build advertises Pact + Schemathesis + idempotency keys;
     the Chinese build mirrors the same coverage with Chinese H2 titles."""
-    from mk_qa_master.tools.qa_context import _builtin_for_lang
+    from gomore_qa_master.tools.qa_context import _builtin_for_lang
 
     en_built = _builtin_for_lang("en")
     zh_built = _builtin_for_lang("zh-tw")
@@ -225,7 +176,7 @@ def test_flakiness_taxonomy_present_in_both_languages():
     five causes are: race conditions, external dependencies, order-dependent
     tests, time-sensitive tests, resource leaks. Each block must carry the
     smell / fix / example trio."""
-    from mk_qa_master.tools.qa_context import _builtin_for_lang
+    from gomore_qa_master.tools.qa_context import _builtin_for_lang
 
     en_built = _builtin_for_lang("en")
     zh_built = _builtin_for_lang("zh-tw")
@@ -248,7 +199,7 @@ def test_captcha_section_present_in_both_languages():
     The section codifies the Tier 1 / 2 / 3 bypass-first decision flow and
     cites the official Google reCAPTCHA test keys so users land on the
     industry-standard fix rather than reaching for a solver."""
-    from mk_qa_master.tools.qa_context import _builtin_for_lang
+    from gomore_qa_master.tools.qa_context import _builtin_for_lang
 
     en_built = _builtin_for_lang("en")
     zh_built = _builtin_for_lang("zh-tw")
@@ -257,24 +208,12 @@ def test_captcha_section_present_in_both_languages():
     assert "## CAPTCHA Testing Strategy" in en_built
     assert "Tier 1" in en_built and "Tier 2" in en_built and "Tier 3" in en_built
     assert "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI" in en_built  # Google test key
-    assert "solve_visual_challenge" in en_built  # forward-pointer to v0.7
 
     # zh-TW side
     assert "## 驗證碼 (CAPTCHA) 測試策略" in zh_built
     assert "Tier 1" in zh_built and "Tier 2" in zh_built and "Tier 3" in zh_built
     assert "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI" in zh_built
 
-
-def test_visual_challenge_fingerprint_table_includes_hcaptcha():
-    """v0.7.1: the fingerprint table must list both vendors. Order is
-    load-bearing — reCAPTCHA precedes hCaptcha so v0.7.0 callers seeing
-    a page with both iframes still match reCAPTCHA first (ratified
-    decision #1 in docs/prd-v0.7.1-hcaptcha.md §11)."""
-    from mk_qa_master.tools.visual_challenge import _FINGERPRINTS
-
-    ids = {fp["id"] for fp in _FINGERPRINTS}
-    assert "recaptcha-v2-image" in ids
-    assert "hcaptcha-image" in ids
 
 
 def test_newman_runner_registered():
@@ -286,7 +225,7 @@ def test_newman_runner_registered():
     called, so this assertion is safe even when newman isn't installed
     on the test runner's PATH (Newman is npm-side and CI installs it
     in a dedicated job)."""
-    from mk_qa_master.runners import REGISTRY
+    from gomore_qa_master.runners import REGISTRY
 
     assert "newman" in REGISTRY, (
         f"newman runner not registered. Available: {sorted(REGISTRY)}"

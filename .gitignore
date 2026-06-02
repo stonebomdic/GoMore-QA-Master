@@ -15,3 +15,6 @@ tests_project/test-results/
 # Stray runner artifacts (run from PROJECT_ROOT during dev)
 .newman-report.json
 .schemathesis-report.json
+
+# Android APK test assets — too large for git
+test_app/

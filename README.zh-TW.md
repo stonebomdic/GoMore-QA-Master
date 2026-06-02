@@ -1,8 +1,9 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kao273183/mk-qa-master/main/assets/logo.png" alt="AI 測試大師 logo" width="180" />
+  <!-- TODO: 換成正式 GoMore logo -->
+  <img src="https://raw.githubusercontent.com/kao273183/gomore-qa-master/main/assets/logo.png" alt="GoMore QA Master logo" width="180" />
 </p>
 
-<h1 align="center">AI 測試大師 ｜ MK QA Master</h1>
+<h1 align="center">GoMore QA Master</h1>
 
 <p align="center">
   <em>你的 AI QA 全鏈路工具 — 分析、生成、執行、給建議。</em>
@@ -13,9 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/mk-qa-master/"><img src="https://img.shields.io/pypi/v/mk-qa-master.svg?logo=pypi&logoColor=white&color=3775A9" alt="PyPI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
-  <a href="https://www.buymeacoffee.com/minikao"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-FFDD00?logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee" /></a>
 </p>
 
 > 跨 pytest / Jest / Cypress / Go 的通用測試執行 MCP server，內建 DOM 分析器、執行歷史紀錄、與自我強化教練。
@@ -42,7 +41,7 @@
 - **行動端透過 Maestro**（v0.3.0 起）：同樣 MCP tool 集、iOS Simulator / Android Emulator / 真機都通；YAML flow 跨平台共用
 - **原生 API 測試 — 兩個 runner**（v0.6.0 / v0.6.1 起）：API 測試這格目前並列兩個 runner，各自吃你團隊已經在維護的 artifact。
   - **Schemathesis**（`QA_RUNNER=schemathesis`，v0.6.0 起）：餵 runner 一個 OpenAPI 3.x / Swagger 2.0 URL 或 `file://` schema，自動產生 property-based fuzz 測試案例，涵蓋 status code、response schema、content-type、`5xx` 受 fuzz 影響等檢查。
-  - **Newman**（`QA_RUNNER=newman`，v0.6.1 起）：餵 runner 一個 Postman 2.x 匯出的 collection（可選帶 environment / globals），Newman 會 replay 每個 request、執行內嵌的 `pm.test(...)` assertion，每個 assertion 對應一個 mk-qa-master nodeid。**Newman 是系統依賴**（`npm install -g newman`）—— 它是 npm 套件不是 pip，所以沒有 Python extra 可裝。
+  - **Newman**（`QA_RUNNER=newman`，v0.6.1 起）：餵 runner 一個 Postman 2.x 匯出的 collection（可選帶 environment / globals），Newman 會 replay 每個 request、執行內嵌的 `pm.test(...)` assertion，每個 assertion 對應一個 gomore-qa-master nodeid。**Newman 是系統依賴**（`npm install -g newman`）—— 它是 npm 套件不是 pip，所以沒有 Python extra 可裝。
 
   兩個 runner 都沿用同一套 MCP tool surface，且共用 `report.json` / history / flake / optimizer pipeline。已經用 pytest+`httpx`、Jest+`supertest`、Cypress `cy.request()`、Go `net/http/httptest` 寫好的 API 測試**仍然走原本的 runner，不需要遷移**。Pact provider verification 維持在 v0.7.0 條件式 roadmap。
 - **失敗產物完整**：截圖（base64 內嵌）、影片、Playwright trace.zip / Maestro recording
@@ -59,28 +58,10 @@
 
 兩條路線，看你怎麼用：
 
-### A. 用 `uvx` 跑（零安裝，推薦給一般使用者）
-
-在 client config 加 `mk-qa-master`，不用全域裝任何東西；[`uv`](https://docs.astral.sh/uv/) 會每次幫你抓並在隔離環境跑：
-
-```json
-{
-  "mcpServers": {
-    "mk-qa-master": {
-      "command": "uvx",
-      "args": ["mk-qa-master"],
-      "env": { "QA_RUNNER": "pytest", "QA_PROJECT_ROOT": "/path/to/your-test-project" }
-    }
-  }
-}
-```
-
-整個設定就這樣。第一次呼叫會下載，後續走 cache。要指定版本：`uvx mk-qa-master@0.4.1 ...`。
-
-### B. 裝進自己的 venv（給貢獻者 / 想 hack 的人）
+### A. 從內部 Git 安裝
 
 ```bash
-pip install mk-qa-master       # 或 git clone 後 pip install -e .
+pip install git+ssh://git@<INTERNAL_GIT_HOST>/gomore-qa-master.git
 playwright install                # pytest-playwright 才需要
 pip install pytest-rerunfailures  # 選用，啟用自動 retry
 ```
@@ -89,7 +70,24 @@ client config 指向同一個 Python：
 
 ```json
 "command": "/path/to/.venv/bin/python",
-"args": ["-m", "mk_qa_master.server"]
+"args": ["-m", "gomore_qa_master.server"]
+```
+
+### B. 從本地 clone 跑（給貢獻者 / 想 hack 的人）
+
+```bash
+git clone ssh://git@<INTERNAL_GIT_HOST>/gomore-qa-master.git
+cd gomore-qa-master
+pip install -e .
+playwright install                # pytest-playwright 才需要
+pip install pytest-rerunfailures  # 選用，啟用自動 retry
+```
+
+client config 指向同一個 Python：
+
+```json
+"command": "/path/to/.venv/bin/python",
+"args": ["-m", "gomore_qa_master.server"]
 ```
 
 ### 各 runner 的先決條件
@@ -101,7 +99,7 @@ client config 指向同一個 Python：
 | `cypress` | Node 專案 + `npm i -D cypress` |
 | `go` | Go toolchain 在 PATH |
 | `maestro` | [Maestro CLI](https://maestro.mobile.dev/) + 模擬器 / 實機 / BlueStacks（透過 `adb connect`） |
-| `schemathesis` / `api` | `pip install 'mk-qa-master[api]'`（自動拉 `schemathesis>=3.0,<4`） |
+| `schemathesis` / `api` | `pip install 'gomore-qa-master[api]'`（自動拉 `schemathesis>=3.0,<4`） |
 | `newman` / `postman` | `npm install -g newman`（Newman 是 npm 套件，不是 pip——沒有 extra 要裝） |
 
 
@@ -142,7 +140,7 @@ status code conformance、content-type 檢查、被 fuzz 打到 `5xx` 的情況�
 
 把 runner 指向任何匯出的 Postman 2.x collection，Newman 6.x 會 replay 每個
 request、執行內嵌的 `pm.test(...)` assertion，每個 assertion 變成一個
-mk-qa-master nodeid。結果跟 Schemathesis、UI 測試共用同一條 `report.json` /
+gomore-qa-master nodeid。結果跟 Schemathesis、UI 測試共用同一條 `report.json` /
 history / flake / optimizer pipeline。
 
 **系統依賴**：Newman 是 npm 套件不是 pip，請先全域安裝：
@@ -151,7 +149,7 @@ history / flake / optimizer pipeline。
 npm install -g newman
 ```
 
-沒有 `pip install 'mk-qa-master[postman]'` extra——runner 只是 shell out
+沒有 `pip install 'gomore-qa-master[postman]'` extra——runner 只是 shell out
 到 PATH 上的 `newman` binary。沒裝會丟出明確的 `ImportError` 提示。
 
 OpenAPI 範例對應的同一個 3-endpoint **Library API**，同時以 Postman
@@ -182,91 +180,6 @@ collection 形式收在
 | `QA_NO_REDACT` | 否 | `0` | 與 Schemathesis runner 相同的遮罩政策——只在 short debug 時關掉。 |
 
 原本的 `QA_TIMEOUT_SECONDS`（預設 600s）依然作用。
-
-
-## AI 視覺挑戰解析（v0.7.0）
-
-> *當後端 bypass 不可行時：Claude 看 CAPTCHA、mk-qa-master 負責點下去。*
-
-支援 reCAPTCHA v2（v0.7.0 起）與 hCaptcha（v0.7.1 起）。
-
-家族裡第一個 **AI client 視覺能力是必要、不是加分項**的功能。新增兩個
-MCP tool（`inspect_visual_challenge` + `solve_visual_challenge`）——
-偵測當前 Playwright 頁面上的 reCAPTCHA v2 或 hCaptcha image-grid
-挑戰、截圖丟給多模態 AI client、接收 AI 回傳的 tile 選擇、執行點擊鏈。
-Runner 是「眼睛跟手」，AI client（Claude / Cursor / Gemini / GPT-4o）
-才是真正的解題者。
-
-### 什麼時候用 — Tier 1 vs Tier 3
-
-內建 QA 知識層（`get_qa_context section="CAPTCHA"`）把策略分成三層，
-照順序套：
-
-| Tier | 做法 | 適用 |
-|---|---|---|
-| **1 — bypass** | reCAPTCHA test keys、feature flag、IP allowlist、test-mode headers | 預設首選，~90% 的情境都用這個 |
-| **2 — degrade** | 標為 `external_dependency`、跳過下游斷言 | 改不到後端、但測試本身不是針對 CAPTCHA |
-| **3 — AI 視覺判斷** | 本功能 | 1 + 2 都不行時：客戶網站有授權但拿不到後端、staging 完整鏡像 production CAPTCHA、行動 webview 無法 IP allowlist |
-
-### 同意 (Consent) 閘門
-
-預設關閉、沒明確 opt-in 不做事。兩個環境變數驅動：
-
-| 變數 | 必填 | 預設 | 作用 |
-|---|---|---|---|
-| `QA_VISUAL_CHALLENGE_CONSENT` | 是 | `false` | 必須設成 `true`，否則 inspect / solve 都回 `consent_required` 加上完整法律免責聲明（AI client 會原樣呈現給使用者）。 |
-| `QA_VISUAL_CHALLENGE_AUTHORIZED_DOMAINS` | 否（建議設） | — | 逗號分隔的 domain 白名單。**有設**：不在名單的 domain 直接拒絕。**沒設**：warn-only — 仍會跑、但 response 帶 warning 字串提醒你補設。共用 CI / 多租戶環境**強烈建議設**。 |
-| `QA_VISUAL_CHALLENGE_TIMEOUT` | 否 | `120` | inspect→solve 整個循環的時間預算（秒）。仍受 `QA_TIMEOUT_SECONDS` 天花板限制。 |
-
-### 快速上手
-
-```jsonc
-"env": {
-  "QA_RUNNER": "pytest",
-  "QA_PROJECT_ROOT": "/path/to/project",
-  "QA_VISUAL_CHALLENGE_CONSENT": "true",
-  "QA_VISUAL_CHALLENGE_AUTHORIZED_DOMAINS": "client-staging.example.com"
-}
-```
-
-之後當 `run_tests` 噴 `external_dependency` 且指向 CAPTCHA，AI client
-就能升級到 Tier 3：
-
-```
-mk-qa-master.inspect_visual_challenge()   # 截圖 + tile 網格
-→ AI 視覺判斷後選 [0, 4, 7]
-mk-qa-master.solve_visual_challenge(
-    challenge_id="...", selected_tile_indices=[0, 4, 7], confirm=true,
-)
-→ status: "passed"、token: "..."、hint: "CAPTCHA 驗證通過。繼續跑你的測試。"
-```
-
-完整教學：[`docs/walkthrough-visual-challenge.md`](docs/walkthrough-visual-challenge.md)。
-PRD：[`docs/prd-v0.7-visual-challenge.md`](docs/prd-v0.7-visual-challenge.md)。
-
-### 硬性禁止 domain
-
-無論 consent 或 allowlist 設成什麼，這份名單永遠拒絕：
-`accounts.google.com`、`login.microsoftonline.com`、`id.apple.com`、
-`facebook.com`、`login.live.com` 等知名第三方登入入口。對別人家的
-登入頁解 CAPTCHA 沒有任何合理的 QA 場景。
-
-### 隱私
-
-inspect→solve 循環結束後**完全不保留截圖**。Telemetry 只記 boolean
-結果——絕不記截圖、不記題目文字、不記 tile 選擇。5 分鐘 LRU cache 最
-多保留 10 個未完成挑戰、且完全不寫硬碟。
-
-### 成功率提醒
-
-實際判題的是 AI client 的視覺模型——Claude Sonnet 4 / GPT-4o /
-Gemini 2.5 都內建視覺，但在 3x3 reCAPTCHA 上的準確率各有差異。請預
-留至少一次重試（reCAPTCHA 鎖出前給 3 次）。後續 `get_telemetry` 會
-彙整 pass-rate，方便依 client 調整預期。
-
-**範圍**：v0.7.0 只支援 reCAPTCHA v2 image-grid。hCaptcha 排 v0.7.1。
-reCAPTCHA v3 / Cloudflare Turnstile 永遠不在計畫內——它們根本沒有可
-視化的挑戰可看。
 
 
 ## 接到 Claude Desktop
@@ -343,11 +256,11 @@ Repo 內附三份範例：
 
 **Codex（TOML）**：
 ```toml
-[mcp_servers.mk-qa-master]
+[mcp_servers.gomore-qa-master]
 command = "/path/to/.venv/bin/python"
-args = ["-m", "mk_qa_master.server"]
-cwd = "/path/to/mk-qa-master"
-[mcp_servers.mk-qa-master.env]
+args = ["-m", "gomore_qa_master.server"]
+cwd = "/path/to/gomore-qa-master"
+[mcp_servers.gomore-qa-master.env]
 QA_RUNNER = "pytest"
 QA_PROJECT_ROOT = "/path/to/your-test-project"
 ```
@@ -356,10 +269,10 @@ QA_PROJECT_ROOT = "/path/to/your-test-project"
 ```json
 {
   "mcpServers": {
-    "mk-qa-master": {
+    "gomore-qa-master": {
       "command": "/path/to/.venv/bin/python",
-      "args": ["-m", "mk_qa_master.server"],
-      "cwd": "/path/to/mk-qa-master",
+      "args": ["-m", "gomore_qa_master.server"],
+      "cwd": "/path/to/gomore-qa-master",
       "env": {
         "QA_RUNNER": "pytest",
         "QA_PROJECT_ROOT": "/path/to/your-test-project"
@@ -422,9 +335,9 @@ QA_PROJECT_ROOT = "/path/to/your-test-project"
 ## 專案結構
 
 ```
-mk-qa-master/
+gomore-qa-master/
 ├── pyproject.toml
-├── src/mk_qa_master/
+├── src/gomore_qa_master/
 │   ├── server.py            # MCP 入口（tool 路由 + telemetry 包裝）
 │   ├── config.py            # 路徑與環境變數
 │   ├── runners/             # 各框架的 plugin
@@ -443,7 +356,7 @@ mk-qa-master/
 
 ## 新增一個 runner
 
-1. 在 `src/mk_qa_master/runners/` 新增 `your_runner.py`，繼承 `TestRunner`，實作必要的 abstract method
+1. 在 `src/gomore_qa_master/runners/` 新增 `your_runner.py`，繼承 `TestRunner`，實作必要的 abstract method
 2. 在 `runners/__init__.py` 的 `REGISTRY` 註冊名稱
 3. 完成 ✅
 
@@ -664,7 +577,7 @@ _Based on 6 archived runs._
 
 ### HTML 報告
 
-[**直接看實際渲染 →**](https://htmlpreview.github.io/?https://github.com/kao273183/mk-qa-master/blob/main/sample_report.html)
+[**直接看實際渲染 →**](https://htmlpreview.github.io/?https://github.com/kao273183/gomore-qa-master/blob/main/sample_report.html)
 （透過 htmlpreview.github.io 代理 render；點 GitHub UI 裡的 [`sample_report.html`](sample_report.html) 只會看到原始碼）。
 
 實際渲染內容含統計卡、Trend sparkline、失敗卡片（嵌入截圖 + step list）、折疊的 Passed 區塊。
@@ -673,7 +586,7 @@ _Based on 6 archived runs._
 
 ## 配套整合（Integrations）
 
-`mk-qa-master` **不打包**任何第三方 SDK——保持「測試執行 + 分析」單一職責。實務上 QA 工作流是**多個 MCP server 並存**、由 Claude 自動編排跨 server 的 tool chain 達成的。MCP 協議本身沒有 server-to-server RPC，每個 server 互不知曉彼此存在，AI client 才是指揮。
+`gomore-qa-master` **不打包**任何第三方 SDK——保持「測試執行 + 分析」單一職責。實務上 QA 工作流是**多個 MCP server 並存**、由 Claude 自動編排跨 server 的 tool chain 達成的。MCP 協議本身沒有 server-to-server RPC，每個 server 互不知曉彼此存在，AI client 才是指揮。
 
 最常見的配套：
 
@@ -694,7 +607,7 @@ _Based on 6 archived runs._
 ```json
 {
   "mcpServers": {
-    "mk-qa-master": { "command": "python", "args": ["-m", "mk_qa_master.server"], "env": { "QA_RUNNER": "maestro" } },
+    "gomore-qa-master": { "command": "python", "args": ["-m", "gomore_qa_master.server"], "env": { "QA_RUNNER": "maestro" } },
     "atlassian":       { "command": "npx", "args": ["-y", "@atlassian/mcp"] },
     "slack":           { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-slack"] },
     "github":          { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] }
@@ -706,19 +619,7 @@ _Based on 6 archived runs._
 
 > 「跑 checkout suite。失敗的每條開 JIRA 到 QA project、用 RIDER 格式、附 screenshot。跑完把 HTML 報告貼到 #qa-bots。」
 
-為什麼這樣設計：`mk-qa-master` 專注做「測試這個迴圈」（analyze → generate → run → coach）。JIRA / Slack / Sentry 各自有專業 server 維護，硬塞進這個 repo 只會稀釋焦點、重複處理 auth、強迫所有使用者繼承不需要的依賴。
-
----
-
-## 支持這個專案 ☕
-
-`mk-qa-master` 是我一人在下班和週末維護的。如果它幫你省了時間，或改變了你們團隊看 AI-driven QA 的方式，一杯咖啡能讓凌晨 debug Maestro 的夜晚撐下去：
-
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buy-me-a-coffee&logoColor=black&style=for-the-badge)](https://www.buymeacoffee.com/minikao)
-
-你的支持會用在：讓這個 repo 持續免費、持續更新；買更多測試裝置（真實 iPhone / Android 平板 / BlueStacks）；錄教學影片給 QA 社群；資助下一個凌晨抓 bug 的夜晚。
-
-沒有廣告、沒有業配、沒有企業版升級話術——只有真的 ship code。
+為什麼這樣設計：`gomore-qa-master` 專注做「測試這個迴圈」（analyze → generate → run → coach）。JIRA / Slack / Sentry 各自有專業 server 維護，硬塞進這個 repo 只會稀釋焦點、重複處理 auth、強迫所有使用者繼承不需要的依賴。
 
 ---
 

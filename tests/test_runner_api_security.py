@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mk_qa_master.runners.api_security import (
+from gomore_qa_master.runners.api_security import (
     DEFAULT_CATEGORIES,
     RULE_BY_CATEGORY,
     _host_authorized,

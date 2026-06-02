@@ -1,9 +1,9 @@
 """Smoke tests for the v0.9.0 cross-host skill distribution layer.
 
 Validates that:
-- skills/mk-qa-master/SKILL.md exists and has parseable YAML frontmatter
+- skills/gomore-qa-master/SKILL.md exists and has parseable YAML frontmatter
 - The frontmatter declares the fields agentskills.io / Claude Code expect
-- Slash commands under skills/mk-qa-master/commands/ have frontmatter too
+- Slash commands under skills/gomore-qa-master/commands/ have frontmatter too
 - .claude-plugin/plugin.json and .codex-plugin/plugin.json are valid JSON
   with the fields each host's plugin marketplace requires
 - The plugin manifests' `version` matches pyproject.toml
@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SKILL_DIR = REPO_ROOT / "skills" / "mk-qa-master"
+SKILL_DIR = REPO_ROOT / "skills" / "gomore-qa-master"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 COMMANDS_DIR = SKILL_DIR / "commands"
 REFERENCE_DIR = SKILL_DIR / "reference"
@@ -76,7 +76,7 @@ def test_skill_md_frontmatter_has_required_fields():
     # Claude Code / agentskills.io require name, description, allowed-tools
     for required in ("name", "description", "allowed-tools"):
         assert required in fm, f"SKILL.md frontmatter missing `{required}`"
-    assert fm["name"] == "mk-qa-master"
+    assert fm["name"] == "gomore-qa-master"
 
 
 def test_skill_md_description_long_enough_for_router():
@@ -163,7 +163,7 @@ def test_claude_plugin_manifest_well_formed():
     manifest = _load_json(CLAUDE_PLUGIN)
     for required in ("name", "version", "description", "skills"):
         assert required in manifest, f"claude plugin.json missing `{required}`"
-    assert manifest["name"] == "mk-qa-master"
+    assert manifest["name"] == "gomore-qa-master"
     assert manifest["skills"] == "./skills"
 
 
@@ -171,7 +171,7 @@ def test_codex_plugin_manifest_well_formed():
     manifest = _load_json(CODEX_PLUGIN)
     for required in ("name", "version", "description", "skills", "interface"):
         assert required in manifest, f"codex plugin.json missing `{required}`"
-    assert manifest["name"] == "mk-qa-master"
+    assert manifest["name"] == "gomore-qa-master"
     interface = manifest["interface"]
     for required in ("displayName", "shortDescription", "longDescription"):
         assert required in interface, (

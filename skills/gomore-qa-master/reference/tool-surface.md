@@ -1,6 +1,6 @@
 # gomore-qa-master — Tool Surface Cheatsheet (v0.9.4)
 
-The 21 MCP tools currently exposed by gomore-qa-master, grouped by flow.
+The 19 MCP tools currently exposed by gomore-qa-master, grouped by flow.
 One-liner + the input-schema gotchas you actually need to remember.
 
 ---
@@ -52,13 +52,6 @@ Use them as bookends around Flows 1-5. Skip for one-shot reads.
 | `init_qa_knowledge` | Scaffold project's QA knowledge directory | One-shot setup |
 | `get_qa_context` | Read methodology + domain knowledge | `section` filter narrows; bilingual (`QA_LANG=en` or `zh-tw`) |
 
-## v0.7 — AI Visual Challenge Solver
-
-| Tool | Purpose | Gotchas |
-|---|---|---|
-| `inspect_visual_challenge` | Detect CAPTCHA + screenshot + tile grid | Needs `QA_VISUAL_CHALLENGE_CONSENT=true`; multimodal MCP returns ImageContent |
-| `solve_visual_challenge` | Apply tile selection + click verify | Requires `confirm=true` safety latch; `status: 'continue'` for dynamic-replace mode means look at the NEW screenshot |
-
 ## v0.8 — OWASP API Security Scanner
 
 | Tool | Purpose | Gotchas |
@@ -84,9 +77,6 @@ Use them as bookends around Flows 1-5. Skip for one-shot reads.
 
 ## Tool naming convention
 
-- `*_tool` suffix internally in the Python module names (e.g.
-  `inspect_visual_challenge_tool`) but the MCP-exposed tool name drops
-  the suffix (`inspect_visual_challenge`).
 - The 19 names above are the **canonical** ones the host's MCP client
   sees. Never invent variants.
 
@@ -99,7 +89,6 @@ some clients), you can fall back to the CLI:
 
 ```bash
 # Direct module-level invocation
-python -m gomore_qa_master.tools.visual_challenge --help
 python -m gomore_qa_master.tools.runner list_tests
 ```
 

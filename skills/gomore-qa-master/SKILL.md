@@ -59,7 +59,7 @@ npm install -g newman           # if using Postman collections
 
 ## Workflow
 
-gomore-qa-master's 21 tools group into **a prelude + five flows**. The
+gomore-qa-master's 19 tools group into **a prelude + five flows**. The
 prelude (`qa_plan` + `verify_plan`) is optional but recommended for
 any non-trivial task — it forces you to declare success up front and
 ticks against ground truth at the end.
@@ -148,15 +148,16 @@ Critical: requires `QA_VISUAL_CHALLENGE_CONSENT=true` in the host env. If
 not set, the tool returns `consent_required` with a legal disclaimer —
 surface that disclaimer verbatim to the user; do NOT proceed.
 
-1. `inspect_visual_challenge()` — returns screenshot + tile metadata.
-2. The host's vision model picks tiles.
-3. `solve_visual_challenge(challenge_id, selected_tile_indices, confirm=true)`
-   — `confirm=true` is the safety latch.
-4. v0.7.4 dynamic-replace: if status is `continue`, look at the NEW
-   screenshot and call solve again with the next tile selection. Pass empty
-   `selected_tile_indices: []` to finalize when no more matches.
+The QA knowledge layer (`get_qa_context section="CAPTCHA"`) codifies three
+tiers before escalating to AI visual judgment:
 
-Read `reference/captcha-solver.md` before calling this for the first time.
+1. **Bypass**: reCAPTCHA test keys, feature flags, IP allowlist —
+   covers ~90% of QA scenarios.
+2. **Degrade**: mark as `external_dependency`, skip downstream
+   assertions.
+3. **AI visual judgment** (v0.7+): only when 1+2 don't fit.
+
+Read `reference/captcha-solver.md` for the bypass-first methodology.
 
 ### Flow 5 — "Scan an API for OWASP issues" (v0.8.0+)
 

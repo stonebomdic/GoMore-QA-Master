@@ -111,39 +111,23 @@ run_failed                            # pytest --lf only
 Gates: `QA_VISUAL_CHALLENGE_CONSENT=true` + optionally
 `QA_VISUAL_CHALLENGE_AUTHORIZED_DOMAINS`.
 
-```
-inspect_visual_challenge()
-   ↓
-  (host's vision picks tiles based on challenge_text + screenshot)
-   ↓
-solve_visual_challenge(challenge_id, selected_tile_indices=[...], confirm=true)
-   ↓ (status == "continue" — dynamic replace mode)
-  (look at the NEW screenshot, pick again)
-   ↓
-solve_visual_challenge(... selected_tile_indices=[], confirm=true)  # finalize
-   ↓
-status: "passed" → token returned
-```
-
-### Hard-stop domains
-
-The tool refuses to operate on third-party identity providers
-(`accounts.google.com`, `login.microsoftonline.com`, `id.apple.com`,
-etc.) regardless of consent. No legitimate QA scenario justifies
-solving CAPTCHAs on someone else's login page.
-
-### When to NOT escalate to v0.7
-
 The built-in QA knowledge (`get_qa_context section="CAPTCHA"`) codifies
-three tiers:
+three tiers — always attempt in order:
 
 1. **Bypass**: reCAPTCHA test keys, feature flags, IP allowlist —
    covers ~90% of QA scenarios.
 2. **Degrade**: mark as `external_dependency`, skip downstream
    assertions.
-3. **AI visual judgment**: this tool. Only when 1+2 don't fit.
+3. **AI visual judgment** (v0.7+): only when 1+2 don't fit.
 
 If the user is hitting CAPTCHAs in dev, suggest tier 1 first.
+
+### Hard-stop domains
+
+The visual-challenge subsystem refuses to operate on third-party identity
+providers (`accounts.google.com`, `login.microsoftonline.com`,
+`id.apple.com`, etc.) regardless of consent. No legitimate QA scenario
+justifies solving CAPTCHAs on someone else's login page.
 
 ---
 

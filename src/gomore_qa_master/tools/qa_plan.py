@@ -78,8 +78,8 @@ from typing import Any, Iterable
 # the user forgets to verify.
 _CACHE_TTL_SECONDS = 30 * 60
 
-# LRU cap. Higher than visual_challenge's 10 because plans are cheap
-# (no screenshots) and a long debugging session might accumulate them.
+# LRU cap. Plans are cheap (no screenshots) and a long debugging
+# session might accumulate them, so we keep a generous bound.
 _CACHE_MAX = 50
 
 # Allowed `kind` values. Free-form makes auto-discovery harder in

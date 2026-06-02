@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Sample Library API
   description: |
-    A fictional 3-endpoint library API for dogfooding mk-qa-master's
+    A fictional 3-endpoint library API for dogfooding gomore-qa-master's
     schemathesis runner. Self-contained, no live backend required —
     pair with `prism mock openapi.yaml` to exercise full request/response,
     or run `schemathesis run --dry-run` for parse-only smoke.

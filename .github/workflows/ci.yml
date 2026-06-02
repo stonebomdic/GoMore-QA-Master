@@ -138,7 +138,7 @@ jobs:
       - name: Install newman
         run: npm install -g newman
 
-      - name: Install mk-qa-master
+      - name: Install gomore-qa-master
         run: |
           python -m pip install --upgrade pip
           pip install -e .

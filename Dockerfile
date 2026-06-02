@@ -1,9 +1,9 @@
-# MK QA Master container — built primarily so Glama (and any other MCP
-# catalog that introspects servers in a sandbox) can boot the server,
+# GoMore QA Master container — built primarily so any MCP
+# catalog that introspects servers in a sandbox can boot the server,
 # send `initialize` + `tools/list` over stdio, and confirm a clean
 # JSON-RPC response.
 #
-# Day-to-day use stays `uvx mk-qa-master` on the host: real test runs
+# Day-to-day use: install from internal Git (see README). Real test runs
 # need access to the user's project files, browsers, simulators, etc.
 # that live outside any sane container. This image is deliberately
 # minimal — enough to answer introspection, not enough to actually run
@@ -27,4 +27,4 @@ ENV QA_RUNNER=pytest \
     PYTHONUNBUFFERED=1
 
 WORKDIR /tmp/qa-project
-ENTRYPOINT ["python", "-m", "mk_qa_master.server"]
+ENTRYPOINT ["python", "-m", "gomore_qa_master.server"]

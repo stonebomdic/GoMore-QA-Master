@@ -1,8 +1,8 @@
 {
   "info": {
-    "_postman_id": "mk-qa-master-sample-library-api",
+    "_postman_id": "gomore-qa-master-sample-library-api",
     "name": "Sample Library API",
-    "description": "Self-contained 3-request Postman collection bundled with mk-qa-master v0.6.1 for dogfooding the Newman runner. Targets the same fictional Library API as the OpenAPI sample (`openapi.yaml`). Each request has `pm.test(...)` assertions covering happy-path status code + response shape. Use `{{baseUrl}}` to point at a Prism mock (`prism mock examples/sample_api_project/openapi.yaml`) or your own staging server.",
+    "description": "Self-contained 3-request Postman collection bundled with gomore-qa-master v0.6.1 for dogfooding the Newman runner. Targets the same fictional Library API as the OpenAPI sample (`openapi.yaml`). Each request has `pm.test(...)` assertions covering happy-path status code + response shape. Use `{{baseUrl}}` to point at a Prism mock (`prism mock examples/sample_api_project/openapi.yaml`) or your own staging server.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [

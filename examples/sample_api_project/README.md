@@ -1,7 +1,7 @@
 # Sample API Project — `examples/sample_api_project/`
 
 A 3-endpoint fictional **Library API** (`/books` GET + POST, `/books/{id}` GET)
-shipped with mk-qa-master so you can dogfood the native API runners
+shipped with gomore-qa-master so you can dogfood the native API runners
 without standing up a backend.
 
 Two equivalent surfaces are bundled — one per runner:
@@ -29,7 +29,7 @@ The fastest way to verify the runner integration end-to-end. Schemathesis
 loads the schema, plans operations, and returns without issuing requests:
 
 ```bash
-pip install 'mk-qa-master[api]'
+pip install 'gomore-qa-master[api]'
 
 export QA_RUNNER=schemathesis
 export QA_OPENAPI_URL="file://$(pwd)/openapi.yaml"
@@ -90,7 +90,7 @@ For the Postman / Newman path (v0.6.1):
 # Newman is an npm package, not pip — install once, globally.
 npm install -g newman
 
-# Point mk-qa-master at the bundled collection. Plain filesystem path,
+# Point gomore-qa-master at the bundled collection. Plain filesystem path,
 # no `file://` prefix (Newman doesn't need it since collections are always
 # local artifacts).
 export QA_RUNNER=newman
@@ -120,7 +120,7 @@ Other knobs (all optional):
   (e.g. `Books` for the bundled collection)
 - `QA_POSTMAN_TIMEOUT_REQUEST_MS` — per-request timeout (default 30000)
 
-The runner generates one mk-qa-master "test" per `pm.test(...)`
+The runner generates one gomore-qa-master "test" per `pm.test(...)`
 assertion. Three requests × 2 assertions each = 6 nodeids in
 `report.json` for a clean run.
 

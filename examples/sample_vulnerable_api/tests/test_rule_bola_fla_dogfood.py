@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 import requests
 
-from mk_qa_master.security_rules import (
+from gomore_qa_master.security_rules import (
     APIClient,
     AuthPair,
     OperationContext,

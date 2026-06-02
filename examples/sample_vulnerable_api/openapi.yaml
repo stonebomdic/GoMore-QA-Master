@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Sample Vulnerable API (mk-qa-master v0.8 fixture)
+  title: Sample Vulnerable API (gomore-qa-master v0.8 fixture)
   version: 0.1.0
   description: |
     Deliberately-vulnerable endpoints used as ground truth for the

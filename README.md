@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kao273183/mk-qa-master/main/assets/logo.png" alt="mk-qa-master logo" width="180" />
+  <img src="https://raw.githubusercontent.com/kao273183/gomore-qa-master/main/assets/logo.png" alt="gomore-qa-master logo" width="180" />
 </p>
 
-<h1 align="center">MK QA Master</h1>
+<h1 align="center">GoMore QA Master</h1>
 
 <p align="center">
   <em>AI 測試大師 — your AI QA loop, from analyze to advise.</em>
@@ -13,11 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/mk-qa-master/"><img src="https://img.shields.io/pypi/v/mk-qa-master.svg?logo=pypi&logoColor=white&color=3775A9" alt="PyPI" /></a>
-  <a href="https://github.com/kao273183/mk-qa-master/actions/workflows/ci.yml"><img src="https://github.com/kao273183/mk-qa-master/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://glama.ai/mcp/servers/kao273183/mk-qa-master"><img src="https://glama.ai/mcp/servers/kao273183/mk-qa-master/badges/score.svg" alt="Glama score" /></a>
+  <a href="https://github.com/kao273183/gomore-qa-master/actions/workflows/ci.yml"><img src="https://github.com/kao273183/gomore-qa-master/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
-  <a href="https://www.buymeacoffee.com/minikao"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-FFDD00?logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee" /></a>
 </p>
 
 > Universal MCP server for running tests across pytest / Jest / Cypress / Go,
@@ -58,7 +55,7 @@ Full design notes: [`docs/framework.md`](docs/framework.md).
   - **Newman** (`QA_RUNNER=newman`, since v0.6.1): point at an exported
     Postman 2.x collection (plus optional environment / globals files) and
     Newman replays every request, runs the embedded `pm.test(...)`
-    assertions, and returns one mk-qa-master nodeid per assertion. Newman
+    assertions, and returns one gomore-qa-master nodeid per assertion. Newman
     is a **system prerequisite** (`npm install -g newman`) — it's an npm
     package, not pip, so it doesn't ship as a Python extra.
 
@@ -90,28 +87,10 @@ Full design notes: [`docs/framework.md`](docs/framework.md).
 
 Two paths — pick the one that matches how you'll use it.
 
-### A. Run via `uvx` (zero install, recommended for end users)
-
-Add `mk-qa-master` to your client config without installing anything globally; [`uv`](https://docs.astral.sh/uv/) fetches and runs it in an ephemeral environment per session:
-
-```json
-{
-  "mcpServers": {
-    "mk-qa-master": {
-      "command": "uvx",
-      "args": ["mk-qa-master"],
-      "env": { "QA_RUNNER": "pytest", "QA_PROJECT_ROOT": "/path/to/your-test-project" }
-    }
-  }
-}
-```
-
-That's the whole setup. First call downloads the package; subsequent calls are cached. Switching versions: `uvx mk-qa-master@0.4.1 ...`.
-
-### B. Install into a project venv (for contributors / hacking)
+### A. Install from internal Git
 
 ```bash
-pip install mk-qa-master       # or: pip install -e . from a clone
+pip install git+ssh://git@<INTERNAL_GIT_HOST>/gomore-qa-master.git
 playwright install                # only if you use pytest-playwright
 pip install pytest-rerunfailures  # optional, enables auto-retry
 ```
@@ -120,7 +99,24 @@ Then point your client config at the same Python interpreter:
 
 ```json
 "command": "/path/to/.venv/bin/python",
-"args": ["-m", "mk_qa_master.server"]
+"args": ["-m", "gomore_qa_master.server"]
+```
+
+### B. Run from a local clone (for contributors / hacking)
+
+```bash
+git clone ssh://git@<INTERNAL_GIT_HOST>/gomore-qa-master.git
+cd gomore-qa-master
+pip install -e .
+playwright install                # only if you use pytest-playwright
+pip install pytest-rerunfailures  # optional, enables auto-retry
+```
+
+Then point your client config at the same Python interpreter:
+
+```json
+"command": "/path/to/.venv/bin/python",
+"args": ["-m", "gomore_qa_master.server"]
 ```
 
 ### Runner-specific prerequisites
@@ -132,7 +128,7 @@ Then point your client config at the same Python interpreter:
 | `cypress` | A Node project with `cypress` installed (`npm i -D cypress`) |
 | `go` | Go toolchain on PATH |
 | `maestro` | [Maestro CLI](https://maestro.mobile.dev/) + a booted simulator / emulator / device (or BlueStacks reachable via `adb connect`) |
-| `schemathesis` / `api` | `pip install 'mk-qa-master[api]'` (pulls in `schemathesis>=3.0,<4`) |
+| `schemathesis` / `api` | `pip install 'gomore-qa-master[api]'` (pulls in `schemathesis>=3.0,<4`) |
 | `newman` / `postman` | `npm install -g newman` (Newman is an npm package, not pip — no extra to install) |
 
 
@@ -175,7 +171,7 @@ Standard `QA_TIMEOUT_SECONDS` still applies (default 600s).
 
 Point the runner at any exported Postman 2.x collection and Newman 6.x
 replays every request, runs the embedded `pm.test(...)` assertions, and
-returns one mk-qa-master "test" per assertion. Results flow through the
+returns one gomore-qa-master "test" per assertion. Results flow through the
 same `report.json` / history / flake / optimizer pipeline as the
 Schemathesis and UI runners.
 
@@ -185,7 +181,7 @@ Schemathesis and UI runners.
 npm install -g newman
 ```
 
-There's no `pip install 'mk-qa-master[postman]'` extra — the runner
+There's no `pip install 'gomore-qa-master[postman]'` extra — the runner
 just shells out to the `newman` binary on PATH. If it's missing, the
 runner raises a clear `ImportError` pointing at the npm install line.
 
@@ -219,99 +215,6 @@ a fully self-contained dev loop, or point at your own staging server.
 Standard `QA_TIMEOUT_SECONDS` still applies (default 600s).
 
 
-## AI Visual Challenge Solver (v0.7.0)
-
-> *When backend bypass isn't an option: Claude looks at the CAPTCHA, mk-qa-master does the clicks.*
-
-Supports reCAPTCHA v2 (since v0.7.0) and hCaptcha (since v0.7.1).
-
-The first capability in the family where the AI client's vision is
-load-bearing, not optional. Two new MCP tools
-(`inspect_visual_challenge` + `solve_visual_challenge`) detect a
-reCAPTCHA v2 or hCaptcha image-grid challenge on the active Playwright
-page, screenshot it for the multimodal AI client, accept the
-tile-selection the AI returns, and execute the click chain. The
-runner is the eyes and hands; the AI client (Claude / Cursor / Gemini
-/ GPT-4o) is the actual solver.
-
-### When to use this — Tier 1 vs Tier 3
-
-The built-in QA knowledge layer (`get_qa_context section="CAPTCHA"`)
-codifies three tiers. Reach for them in order:
-
-| Tier | Approach | When |
-|---|---|---|
-| **1 — bypass** | reCAPTCHA test keys, feature flags, IP allowlist, test-mode headers | Default. Covers ~90% of cases. |
-| **2 — degrade** | Mark as `external_dependency`, skip downstream assertions | When you can't change the backend but the test isn't about the CAPTCHA itself. |
-| **3 — AI visual judgment** | This feature. | Only when 1 + 2 don't fit (client sites with authorization but no backend access, staging that mirrors prod CAPTCHA, mobile webviews where IP allowlist isn't reachable). |
-
-### Consent gate
-
-The solver does nothing until you explicitly opt in. Two env vars drive
-it:
-
-| Variable | Required | Default | What it does |
-|---|---|---|---|
-| `QA_VISUAL_CHALLENGE_CONSENT` | yes | `false` | Must be set to `true` for either tool to function. Without it, both tools return a `consent_required` error carrying the full legal disclaimer (the AI client surfaces this to the user). |
-| `QA_VISUAL_CHALLENGE_AUTHORIZED_DOMAINS` | no (recommended) | — | Comma-separated allowlist of domains where the tool may operate. When SET, refuses any other domain. When UNSET, warn-only — proceeds but stamps the response with a warning telling you to set one. **Recommended** for shared CI / multi-tenant environments. |
-| `QA_VISUAL_CHALLENGE_TIMEOUT` | no | `120` | Wall-clock budget in seconds for the inspect→solve cycle. Honors `QA_TIMEOUT_SECONDS` as a hard ceiling. |
-
-### Quick start
-
-```jsonc
-"env": {
-  "QA_RUNNER": "pytest",
-  "QA_PROJECT_ROOT": "/path/to/project",
-  "QA_VISUAL_CHALLENGE_CONSENT": "true",
-  "QA_VISUAL_CHALLENGE_AUTHORIZED_DOMAINS": "client-staging.example.com"
-}
-```
-
-Then, when a `run_tests` call surfaces an `external_dependency`
-failure that points at a CAPTCHA, the AI client can escalate:
-
-```
-mk-qa-master.inspect_visual_challenge()  # screenshot + tile grid
-→ AI vision picks tiles [0, 4, 7]
-mk-qa-master.solve_visual_challenge(
-    challenge_id="...", selected_tile_indices=[0, 4, 7], confirm=true,
-)
-→ status: "passed", token: "...", hint: "CAPTCHA verified. Resume your test."
-```
-
-Full walkthrough lives in [`docs/walkthrough-visual-challenge.md`](docs/walkthrough-visual-challenge.md).
-PRD: [`docs/prd-v0.7-visual-challenge.md`](docs/prd-v0.7-visual-challenge.md).
-
-### Hard-stop domains
-
-Regardless of consent or allowlist, the solver refuses to operate on
-known third-party identity providers (`accounts.google.com`,
-`login.microsoftonline.com`, `id.apple.com`, `facebook.com`,
-`login.live.com`, etc.). No legitimate QA scenario justifies a
-CAPTCHA solver against someone else's login portal.
-
-### Privacy
-
-No screenshot retention beyond the active inspect→solve cycle.
-Telemetry logs the boolean outcome only — never the screenshot, never
-the challenge text, never the tile selection. The 5-minute LRU cache
-holds at most 10 outstanding challenges per process and never touches
-disk.
-
-### Success rate caveat
-
-The AI client's vision model does the actual judging — Claude Sonnet
-4, GPT-4o, and Gemini 2.5 all ship with native vision but their
-accuracy on a 3x3 reCAPTCHA varies. Plan for at least one retry per
-challenge (reCAPTCHA gives you three before locking out). `get_telemetry`
-will eventually surface aggregate pass-rate so you can size that
-expectation per-client.
-
-**Scope**: reCAPTCHA v2 image-grid only in v0.7.0. hCaptcha lands in
-v0.7.1. reCAPTCHA v3 / Cloudflare Turnstile are permanently out of
-scope — they don't surface a visible challenge to inspect.
-
-
 ## OWASP API Security scanning (v0.8.0)
 
 > *Schemathesis catches correctness drift. v0.8.0 adds the layer that
@@ -336,8 +239,6 @@ API4 (rate limit DoS risk), API6 (business flow modeling), API7
 
 ### Consent + authorization gates
 
-Mirrors the v0.7 visual-challenge consent model:
-
 | Variable | Required | What it does |
 |---|---|---|
 | `QA_API_SECURITY_CONSENT` | yes | Must be `true`. Without it, returns `consent_required`. |
@@ -361,7 +262,7 @@ default categories**. Callers must opt in:
 Then ask the AI client to scan:
 
 ```
-mk-qa-master.run_api_security_scan(
+gomore-qa-master.run_api_security_scan(
     spec_url="https://api.staging.example.com/openapi.yaml",
     auth={
         "token": "alice's bearer token",
@@ -437,8 +338,8 @@ gates.
 > *Same skill folder loads in four different agent hosts via the
 > [agentskills.io](https://agentskills.io) convention.*
 
-v0.9.0 packages mk-qa-master as a **cross-host agent skill** in addition
-to its MCP-server form. The `skills/mk-qa-master/` folder is the single
+v0.9.0 packages gomore-qa-master as a **cross-host agent skill** in addition
+to its MCP-server form. The `skills/gomore-qa-master/` folder is the single
 source of truth — the same `SKILL.md`, slash commands, and reference
 docs load into:
 
@@ -447,39 +348,38 @@ docs load into:
 - **OpenAI Codex** — via `.codex-plugin/plugin.json` (Codex reads Claude-
   style marketplaces).
 - **OpenClaw** — install from local checkout: `openclaw plugins install
-  /path/to/mk-qa-master`.
+  /path/to/gomore-qa-master`.
 - **Hermes Agent** — symlink the skill folder into `~/.hermes/skills/`.
 
 ### Quick install (Claude Code)
 
 ```text
 # Inside Claude Code:
-/plugin marketplace add kao273183/mk-qa-master
-/plugin install mk-qa-master@mk-qa-master
+/plugin marketplace add kao273183/gomore-qa-master
+/plugin install gomore-qa-master@gomore-qa-master
 ```
 
 Restart Claude Code so the skill registers. Then any QA testing prompt
 auto-activates the skill — or explicitly invoke a slash command:
 
 ```
-/mk-qa-master:run-tests login
-/mk-qa-master:generate https://staging.example.com
-/mk-qa-master:api-security https://api.staging.example.com/openapi.yaml
+/gomore-qa-master:run-tests login
+/gomore-qa-master:generate https://staging.example.com
+/gomore-qa-master:api-security https://api.staging.example.com/openapi.yaml
 ```
 
 ### What the skill does
 
 The skill is a single-file operating contract that teaches the host how
-to drive mk-qa-master's 19 MCP tools coherently. It encodes:
+to drive gomore-qa-master's 19 MCP tools coherently. It encodes:
 
 - **When to auto-activate** — phrases like "run my tests", "why did this
   test fail", "scan this API for OWASP issues" trigger it.
-- **Five flows** — run tests / generate tests / debug failures / solve
-  CAPTCHAs / scan APIs.
+- **Four flows** — run tests / generate tests / debug failures / scan APIs.
 - **Hard rules** — surface consent errors verbatim, don't silently
   re-run with relaxed filters, confirm before destructive runs.
 
-Full reference at [`skills/mk-qa-master/SKILL.md`](skills/mk-qa-master/SKILL.md).
+Full reference at [`skills/gomore-qa-master/SKILL.md`](skills/gomore-qa-master/SKILL.md).
 
 ### Why a skill on top of an MCP server?
 
@@ -568,11 +468,11 @@ Example configs ship in the repo:
 
 Codex (TOML):
 ```toml
-[mcp_servers.mk-qa-master]
+[mcp_servers.gomore-qa-master]
 command = "/path/to/.venv/bin/python"
-args = ["-m", "mk_qa_master.server"]
-cwd = "/path/to/mk-qa-master"
-[mcp_servers.mk-qa-master.env]
+args = ["-m", "gomore_qa_master.server"]
+cwd = "/path/to/gomore-qa-master"
+[mcp_servers.gomore-qa-master.env]
 QA_RUNNER = "pytest"
 QA_PROJECT_ROOT = "/path/to/your-test-project"
 ```
@@ -581,10 +481,10 @@ Gemini (JSON, same shape as Claude Desktop):
 ```json
 {
   "mcpServers": {
-    "mk-qa-master": {
+    "gomore-qa-master": {
       "command": "/path/to/.venv/bin/python",
-      "args": ["-m", "mk_qa_master.server"],
-      "cwd": "/path/to/mk-qa-master",
+      "args": ["-m", "gomore_qa_master.server"],
+      "cwd": "/path/to/gomore-qa-master",
       "env": {
         "QA_RUNNER": "pytest",
         "QA_PROJECT_ROOT": "/path/to/your-test-project"
@@ -622,7 +522,6 @@ Shared across all runners (some tools degrade gracefully on non-pytest runners):
 | `analyze_screen` | **Mobile**: `maestro hierarchy` → form / cta / tab_bar modules + candidate TCs (noise-filtered) |
 | `init_qa_knowledge` / `get_qa_context` | Scaffold + read the project's QA knowledge layer (methodology + domain). **Bilingual since v0.6.2** — methodology ships in English by default (`QA_LANG=en`) or Traditional Chinese (`QA_LANG=zh-tw`); same 13 sections in both, the four newest cover API testing methodology, flakiness root-cause taxonomy, test doubles (mock / stub / fake / spy), and test data management. Domain example: [`docs/qa-knowledge-en.example.md`](docs/qa-knowledge-en.example.md) (zh-TW: [`docs/qa-knowledge.example.md`](docs/qa-knowledge.example.md)). |
 | `get_optimization_plan` | Three-layer self-improvement coach (suite / MCP / AI strategy) |
-| `inspect_visual_challenge` / `solve_visual_challenge` | **v0.7.0** AI Visual Challenge Solver — detect a reCAPTCHA v2 image-grid challenge, screenshot it, accept the AI client's tile selection, execute the click chain. Gated by `QA_VISUAL_CHALLENGE_CONSENT=true` + per-call `confirm=true`. See the dedicated section above. |
 | `run_api_security_scan` | **v0.8.0** OWASP API Security Top 10 (2023) rule-based scanner — load an OpenAPI 3.x spec, walk path × method, dispatch 5 in-scope rules (API1 BOLA, API2 Broken Auth, API3 Mass Assignment, API5 Function-Level Authz, API8 Misconfig). Gated by `QA_API_SECURITY_CONSENT=true` + `QA_API_SECURITY_AUTHORIZED_DOMAINS`. See the dedicated section above. |
 
 ### Resources
@@ -656,9 +555,9 @@ can chain into the next tool call.
 ## Project layout
 
 ```
-mk-qa-master/
+gomore-qa-master/
 ├── pyproject.toml
-├── src/mk_qa_master/
+├── src/gomore_qa_master/
 │   ├── server.py            # MCP entry (tool routing + telemetry wrap)
 │   ├── config.py            # Paths + env vars
 │   ├── runners/             # Per-framework plugins
@@ -677,7 +576,7 @@ mk-qa-master/
 
 ## Adding a runner
 
-1. Create `src/mk_qa_master/runners/your_runner.py`, subclass `TestRunner`,
+1. Create `src/gomore_qa_master/runners/your_runner.py`, subclass `TestRunner`,
    implement the abstract methods
 2. Register the name in `runners/__init__.py`'s `REGISTRY`
 3. Done
@@ -923,7 +822,7 @@ _Based on 6 archived runs._
 
 ### HTML report
 
-[**Open the live rendered demo →**](https://htmlpreview.github.io/?https://github.com/kao273183/mk-qa-master/blob/main/sample_report.html)
+[**Open the live rendered demo →**](https://htmlpreview.github.io/?https://github.com/kao273183/gomore-qa-master/blob/main/sample_report.html)
 (served via GitHub Pages — clicking the link in GitHub's UI to
 [`sample_report.html`](sample_report.html) would only show source).
 
@@ -934,7 +833,7 @@ screenshots + step lists, and the collapsed Passed section.
 
 ## Integrations
 
-`mk-qa-master` doesn't bundle third-party SDKs — it stays a pure
+`gomore-qa-master` doesn't bundle third-party SDKs — it stays a pure
 test-execution + analysis layer. Real QA workflows are composed by
 running multiple MCP servers side-by-side in the same client config;
 **Claude orchestrates the chain across servers**. There's no MCP-to-MCP
@@ -954,12 +853,12 @@ The pairings below are the ones that complete the loop most often:
 
 ### Composing in your client config
 
-All five run as separate processes alongside `mk-qa-master`:
+All five run as separate processes alongside `gomore-qa-master`:
 
 ```json
 {
   "mcpServers": {
-    "mk-qa-master": { "command": "python", "args": ["-m", "mk_qa_master.server"], "env": { "QA_RUNNER": "maestro" } },
+    "gomore-qa-master": { "command": "python", "args": ["-m", "gomore_qa_master.server"], "env": { "QA_RUNNER": "maestro" } },
     "atlassian":       { "command": "npx", "args": ["-y", "@atlassian/mcp"] },
     "slack":           { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-slack"] },
     "github":          { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] }
@@ -971,19 +870,19 @@ Then a single prompt walks the chain:
 
 > "Run the checkout suite. For each failure, open a JIRA in project QA with the RIDER format and the screenshot attached. Post the HTML report to #qa-bots when done."
 
-Why this matters: `mk-qa-master` stays focused on the test loop
+Why this matters: `gomore-qa-master` stays focused on the test loop
 (analyze → generate → run → coach). JIRA / Slack / Sentry are entire
 domains with their own dedicated servers — bolting them into this one
 would dilute the scope, duplicate auth handling, and force every user
 to inherit dependencies they may not want.
 
-本 repo 不打包任何第三方 SDK——維持「測試執行 + 分析」單一職責。實務上 QA 工作流是**多個 MCP server 並存、由 Claude 編排跨 server 的 tool chain**達成的。範例配套：JIRA / Slack / GitHub / Sentry / Filesystem 各自獨立 MCP server，配上 `mk-qa-master` 拼出完整測試管線。
+本 repo 不打包任何第三方 SDK——維持「測試執行 + 分析」單一職責。實務上 QA 工作流是**多個 MCP server 並存、由 Claude 編排跨 server 的 tool chain**達成的。範例配套：JIRA / Slack / GitHub / Sentry / Filesystem 各自獨立 MCP server，配上 `gomore-qa-master` 拼出完整測試管線。
 
 ---
 
 ## Publishing (maintainer-only)
 
-Releases ship to PyPI via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) — no API tokens stored in the repo. The flow:
+Releases are distributed via internal Git. The flow:
 
 1. Bump `version = "x.y.z"` in `pyproject.toml` (via a normal PR — main is branch-protected).
 2. After merge, tag main and push:
@@ -991,43 +890,12 @@ Releases ship to PyPI via [Trusted Publishing](https://docs.pypi.org/trusted-pub
    git tag -a vX.Y.Z -m "vX.Y.Z — short summary"
    git push origin vX.Y.Z
    ```
-3. Create a GitHub Release for that tag (`gh release create vX.Y.Z ...`).
-4. The release event fires `.github/workflows/publish.yml` → builds sdist + wheel → uploads to PyPI.
-
-One-time PyPI setup (must be done once before the first publish works):
-
-- Sign in at https://pypi.org → enable 2FA.
-- Project page → *Settings → Publishing* → add a **pending publisher** with:
-  - Owner: `kao273183`
-  - Repository: `mk-qa-master`
-  - Workflow filename: `publish.yml`
-  - Environment name: `pypi`
-
-After the first successful run, PyPI auto-promotes the pending publisher to a trusted one and subsequent releases authenticate via OIDC.
-
-The workflow refuses to publish if the release tag doesn't match `pyproject.version`, which catches "tagged but forgot to bump" mistakes before they hit PyPI.
-
----
-
-## Support the project ☕
-
-`mk-qa-master` is built and maintained solo on nights and weekends. If it saved you time or shaped how your team thinks about AI-driven QA, a coffee keeps the late-night Maestro debugging sessions going:
-
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buy-me-a-coffee&logoColor=black&style=for-the-badge)](https://www.buymeacoffee.com/minikao)
-
-Your support funds: keeping this repo free + actively maintained, more device variants for Maestro testing (real iPhones / Android tablets / BlueStacks), recorded tutorials for the QA community, and the next 2am bug hunt.
-
-No ads, no sponsorships, no enterprise upsell — just the work.
 
 ---
 
 ## Contributing
 
-This repo is **maintained solo**. Ideas and bug reports are very welcome — please open an [Issue](https://github.com/kao273183/mk-qa-master/issues/new/choose) or start a [Discussion](https://github.com/kao273183/mk-qa-master/discussions). I read every one and will implement what fits the project's direction.
-
-**External pull requests are auto-closed.** Not because contributions aren't appreciated, but because keeping the codebase coherent under a single voice matters more here than the throughput a multi-contributor model would bring. If you really want a specific change, an Issue describing the problem gets you further than a PR.
-
-本 repo 由我一人維護。歡迎透過 Issue / Discussion 提想法或回報問題，我會親自評估並實作。**外部 PR 會自動關閉**——不是不歡迎貢獻，而是想保持程式碼風格與走向一致。
+Ideas and bug reports are very welcome — please open an [Issue](https://github.com/kao273183/gomore-qa-master/issues/new/choose) or start a [Discussion](https://github.com/kao273183/gomore-qa-master/discussions). We read every one and will implement what fits the project's direction.
 
 ---
 

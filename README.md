@@ -1,4 +1,5 @@
 <p align="center">
+  <!-- TODO: 換成正式 GoMore logo -->
   <img src="https://raw.githubusercontent.com/kao273183/gomore-qa-master/main/assets/logo.png" alt="gomore-qa-master logo" width="180" />
 </p>
 

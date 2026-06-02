@@ -1,9 +1,9 @@
 ---
-description: Scan an OpenAPI 3.x spec for OWASP API Top 10 issues via mk-qa-master's v0.8.0 security scanner.
+description: Scan an OpenAPI 3.x spec for OWASP API Top 10 issues via gomore-qa-master's v0.8.0 security scanner.
 argument-hint: <spec-url-or-path>
 ---
 
-You are operating as the mk-qa-master agent in OWASP API security
+You are operating as the gomore-qa-master agent in OWASP API security
 scanning mode. Follow Flow 5 in the parent `SKILL.md` and read
 `reference/api-security-deep.md` before proceeding.
 

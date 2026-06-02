@@ -444,7 +444,7 @@ _UNIVERSAL_METHODOLOGY_ZH = """## ISTQB 七大測試原則
 ### Tier 2：Degrade gracefully — 沒 backend 控制權時
 
 - 偵測到 CAPTCHA iframe -> 截圖、標記 test 為 `external_dependency`、跳過後續斷言
-- mk-qa-master 的 optimizer 看到連續因 CAPTCHA 失敗 -> 分類為 `external` 而非 `broken` / `flaky`
+- gomore-qa-master 的 optimizer 看到連續因 CAPTCHA 失敗 -> 分類為 `external` 而非 `broken` / `flaky`
 - CI 階段 skip CAPTCHA 後路徑，local dev 走 Tier 3 手動或 AI 視覺判斷
 
 ### Tier 3：AI 視覺判斷 — 最後手段
@@ -881,7 +881,7 @@ CAPTCHA (reCAPTCHA / hCaptcha / Cloudflare Turnstile) is where automated test ru
 ### Tier 2: Degrade gracefully — when you can't change the backend
 
 - Detect the CAPTCHA iframe, screenshot it, mark the test as `external_dependency` and skip downstream assertions
-- mk-qa-master's optimizer classifies consecutive CAPTCHA-caused failures as `external` rather than `broken` or `flaky`
+- gomore-qa-master's optimizer classifies consecutive CAPTCHA-caused failures as `external` rather than `broken` or `flaky`
 - Skip CAPTCHA-protected paths in CI; use Tier 3 (manual or AI vision) only on local dev
 
 ### Tier 3: AI visual judgment — last resort
@@ -954,7 +954,7 @@ def _builtin_for_lang(lang: str) -> str:
 
 _BUILTIN_HEADER_ZH = (
     "# QA Knowledge — Universal Testing Methodology (built-in fallback)\n\n"
-    "> 這份是 mk-qa-master 內建的通用 QA 方法論，整理自 ISTQB / Google 測試金字塔 / 業界 mobile QA 標準\n"
+    "> 這份是 gomore-qa-master 內建的通用 QA 方法論，整理自 ISTQB / Google 測試金字塔 / 業界 mobile QA 標準\n"
     "> + API 測試、Flaky 根因分類、測試替身（Fowler 四分類）、測試資料管理。\n"
     "> 任何測試專案都可以套用 — **但缺少你的領域知識**（業務規則 / 回歸點 / 標準文案）\n"
     "> 就還是會偏向 monkey testing。解法：執行 init_qa_knowledge tool，\n"
@@ -964,7 +964,7 @@ _BUILTIN_HEADER_ZH = (
 
 _BUILTIN_HEADER_EN = (
     "# QA Knowledge — Universal Testing Methodology (built-in fallback)\n\n"
-    "> This is mk-qa-master's built-in universal QA methodology, distilled from\n"
+    "> This is gomore-qa-master's built-in universal QA methodology, distilled from\n"
     "> ISTQB principles, Google's test pyramid, industry mobile QA standards,\n"
     "> plus API testing, flakiness root-cause taxonomy, test doubles\n"
     "> (Fowler's four-type breakdown), and test data management.\n"
@@ -978,13 +978,13 @@ _BUILTIN_HEADER_EN = (
 
 _STARTER_HEADER_ZH = (
     "# QA Knowledge — {project_name}\n\n"
-    "> 給 mk-qa-master 讀的領域知識。get_qa_context() 會把這份內容暴露給 AI，\n"
+    "> 給 gomore-qa-master 讀的領域知識。get_qa_context() 會把這份內容暴露給 AI，\n"
     "> 用於決定要測什麼 + 把規則印進產出 test 的 `# Business context:` 區段。\n"
     "> **規則**：以 H2 (`##`) 區段為單位、client 可指定 section 拉取單一段（partial match）。\n\n"
     "> ---\n"
     "> **上半部「通用測試方法論」**（ISTQB / 邊界值 / 測試金字塔 / 回歸策略 / Mobile checklist / "
     "QA metrics / API 測試 / Flaky 根因 / 測試替身 / 測試資料）\n"
-    "> 由 mk-qa-master 預載。一般不需要動；場景不適用某些方法論可以刪除對應 H2 段落。\n"
+    "> 由 gomore-qa-master 預載。一般不需要動；場景不適用某些方法論可以刪除對應 H2 段落。\n"
     "> \n"
     "> **下半部「你的 XXX」TODO 區段**才是讓測試脫離 monkey 等級的關鍵 — 請填入你的領域業務規則。\n"
     "> ---\n\n"
@@ -993,7 +993,7 @@ _STARTER_HEADER_ZH = (
 
 _STARTER_HEADER_EN = (
     "# QA Knowledge — {project_name}\n\n"
-    "> Domain knowledge for mk-qa-master to read. `get_qa_context()` exposes this\n"
+    "> Domain knowledge for gomore-qa-master to read. `get_qa_context()` exposes this\n"
     "> file to the AI so it can decide what to test and inject your rules into the\n"
     "> `# Business context:` block of every generated test.\n"
     "> **Convention**: split topics with H2 (`##`); clients can pull a single\n"
@@ -1002,7 +1002,7 @@ _STARTER_HEADER_EN = (
     "> The **upper half (universal testing methodology)** — ISTQB / boundary values /\n"
     "> test pyramid / regression strategy / mobile checklist / QA metrics / API\n"
     "> testing / flakiness taxonomy / test doubles / test data management — ships\n"
-    "> preloaded by mk-qa-master. You usually don't need to touch it; delete any\n"
+    "> preloaded by gomore-qa-master. You usually don't need to touch it; delete any\n"
     "> H2 sections that don't apply to your context.\n"
     "> \n"
     "> The **lower half (`Your XXX` TODO sections)** is what lifts tests above\n"

@@ -278,7 +278,7 @@ def _stringify_evidence_item(item: Any) -> str:
 #
 # Default policy
 # --------------
-#   - Enabled when QA_PROJECT_ROOT is set (mk-qa-master is "configured").
+#   - Enabled when QA_PROJECT_ROOT is set (gomore-qa-master is "configured").
 #   - Disabled when QA_PROJECT_ROOT is unset (ad-hoc invocations
 #     shouldn't surprise users with file writes).
 #   - QA_PLAN_PERSIST=true|false explicitly overrides either way.
@@ -325,7 +325,7 @@ def _plan_to_json(plan: "_Plan") -> dict[str, Any]:
         "critical_points": [cp.to_dict() for cp in plan.critical_points],
         "created_at": plan.created_at.isoformat(),
         "expires_at": plan.expires_at.isoformat(),
-        "_schema": "mk-qa-master.plan.v1",
+        "_schema": "gomore-qa-master.plan.v1",
     }
 
 
@@ -434,8 +434,8 @@ def _default_report_path() -> Path:
 
     Order:
       1. `MK_QA_REPORT_PATH` env override (absolute path)
-      2. `<QA_PROJECT_ROOT>/report.json` (mk-qa-master default — see
-         `mk_qa_master.config.REPORT_PATH`)
+      2. `<QA_PROJECT_ROOT>/report.json` (gomore-qa-master default — see
+         `gomore_qa_master.config.REPORT_PATH`)
       3. `./report.json` (CWD fallback for ad-hoc invocations)
 
     We resolve at call time, not import time, so tests can monkeypatch

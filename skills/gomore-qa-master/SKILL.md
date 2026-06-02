@@ -1,13 +1,13 @@
 ---
-name: mk-qa-master
-description: Run, generate, debug, and improve software tests through mk-qa-master's MCP tools (pytest / Playwright / Jest / Cypress / Maestro / Schemathesis / Newman) and its v0.7 AI Visual Challenge Solver (reCAPTCHA / hCaptcha) and v0.8 OWASP API Security Top 10 scanner. Use when the user asks to run their test suite, diagnose a failing test, generate new tests from a URL or mobile screen, scan an OpenAPI spec for security findings, solve a CAPTCHA blocking a test, or get a self-improvement plan for their suite. Auto-activates from phrases like "run my tests", "why did this test fail", "generate tests for this URL", "scan this API for OWASP issues", "the test is stuck on a reCAPTCHA".
+name: gomore-qa-master
+description: Run, generate, debug, and improve software tests through gomore-qa-master's MCP tools (pytest / Playwright / Jest / Cypress / Maestro / Schemathesis / Newman) and its v0.7 AI Visual Challenge Solver (reCAPTCHA / hCaptcha) and v0.8 OWASP API Security Top 10 scanner. Use when the user asks to run their test suite, diagnose a failing test, generate new tests from a URL or mobile screen, scan an OpenAPI spec for security findings, solve a CAPTCHA blocking a test, or get a self-improvement plan for their suite. Auto-activates from phrases like "run my tests", "why did this test fail", "generate tests for this URL", "scan this API for OWASP issues", "the test is stuck on a reCAPTCHA".
 allowed-tools: Bash, Read, Write, Edit
 ---
 
-# mk-qa-master (QA testing skill)
+# gomore-qa-master (QA testing skill)
 
-You are operating as the mk-qa-master agent. The user wants to run, generate,
-debug, or harden their software tests. mk-qa-master ships as an MCP server
+You are operating as the gomore-qa-master agent. The user wants to run, generate,
+debug, or harden their software tests. gomore-qa-master ships as an MCP server
 with **19 tools**, a bilingual QA knowledge layer, and three specialty
 subsystems (visual challenge solver, OWASP API security scanner, self-
 improvement loop). This skill is the **single-file operating contract** —
@@ -33,12 +33,12 @@ API, design my DB, refactor my React code), DO NOT auto-activate this skill.
 
 Either:
 
-1. **mk-qa-master is wired as an MCP server in this host.** The 19 MCP tools
+1. **gomore-qa-master is wired as an MCP server in this host.** The 19 MCP tools
    are directly callable — that's the happy path.
-2. **mk-qa-master is installed but not wired.** Use Bash to call
-   `mk-qa-master` CLI entrypoint, or `python -m mk_qa_master.server` to
+2. **gomore-qa-master is installed but not wired.** Use Bash to call
+   `gomore-qa-master` CLI entrypoint, or `python -m gomore_qa_master.server` to
    bring it up. See `reference/wire-mcp.md`.
-3. **Not installed.** Run `pip install mk-qa-master==0.9.0` then re-prompt.
+3. **Not installed.** Run `pip install gomore-qa-master==0.9.0` then re-prompt.
 
 Per-runner extras (only install what the user actually needs):
 
@@ -50,7 +50,7 @@ playwright install chromium
 brew install maestro            # macOS, or follow https://maestro.mobile.dev
 
 # API fuzz testing
-pip install 'mk-qa-master[api]' # adds schemathesis
+pip install 'gomore-qa-master[api]' # adds schemathesis
 npm install -g newman           # if using Postman collections
 
 # OWASP API security scanner (v0.8.0)
@@ -59,7 +59,7 @@ npm install -g newman           # if using Postman collections
 
 ## Workflow
 
-mk-qa-master's 21 tools group into **a prelude + five flows**. The
+gomore-qa-master's 21 tools group into **a prelude + five flows**. The
 prelude (`qa_plan` + `verify_plan`) is optional but recommended for
 any non-trivial task — it forces you to declare success up front and
 ticks against ground truth at the end.
@@ -205,7 +205,7 @@ opt-in checklist + how to wire two-user `auth_pair` config for BOLA.
 - **Confirm before destructive runs.** `mass_assignment` (API3) mutates
   server state. `run_tests --headed=true` opens a real browser. Both need
   the user's explicit nod before invoking; if they invoked the relevant
-  slash command (`/mk-qa-master:api-security mass-assignment`), that
+  slash command (`/gomore-qa-master:api-security mass-assignment`), that
   counts as opt-in.
 - **Tier 1 fixture is sacred.** `examples/sample_vulnerable_api/` ships
   deliberate vulnerabilities for self-testing. Never recommend deploying
@@ -218,9 +218,9 @@ opt-in checklist + how to wire two-user `auth_pair` config for BOLA.
 
 Optional shortcuts under `commands/`:
 
-- `/mk-qa-master:run-tests <filter>` — Flow 1 condensed
-- `/mk-qa-master:generate <url>` — Flow 2 condensed
-- `/mk-qa-master:api-security <spec_url>` — Flow 5 condensed
+- `/gomore-qa-master:run-tests <filter>` — Flow 1 condensed
+- `/gomore-qa-master:generate <url>` — Flow 2 condensed
+- `/gomore-qa-master:api-security <spec_url>` — Flow 5 condensed
 
 These are convenience templates; this skill also activates automatically
 from any prompt whose intent matches its description.
@@ -236,7 +236,7 @@ from any prompt whose intent matches its description.
 ## Why this skill exists
 
 The MCP tool surface is **callable** by any host, but each host has a
-different way to **discover** what mk-qa-master is for. The skill file is
+different way to **discover** what gomore-qa-master is for. The skill file is
 the canonical narrative the host's skill router parses — same description
 text, same allowed-tools constraint, same workflow rules, regardless of
 whether you're inside Claude Code, Codex, OpenClaw, or Hermes. v0.9.0

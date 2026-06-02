@@ -1,4 +1,4 @@
-"""Smoke tests for mk-qa-master.
+"""Smoke tests for gomore-qa-master.
 
 Catches the "easy" regressions that an MCP catalog or first-time user will
 hit before they get to a real test run:
@@ -40,19 +40,19 @@ EXPECTED_TOOLS = {
 
 
 def test_package_importable():
-    import mk_qa_master  # noqa: F401
-    import mk_qa_master.server  # noqa: F401
+    import gomore_qa_master  # noqa: F401
+    import gomore_qa_master.server  # noqa: F401
 
 
 def test_server_instantiable():
-    from mk_qa_master.server import app
+    from gomore_qa_master.server import app
 
     assert app is not None
-    assert app.name == "mk-qa-master"
+    assert app.name == "gomore-qa-master"
 
 
 def test_list_tools_returns_advertised_surface():
-    from mk_qa_master.server import list_tools
+    from gomore_qa_master.server import list_tools
 
     declared = {t.name for t in asyncio.run(list_tools())}
     missing = EXPECTED_TOOLS - declared
@@ -63,7 +63,7 @@ def test_list_tools_count_matches_advertised_19():
     """If the count drifts, README and the family-site claim must be updated in lockstep.
     Current advertised surface is 19 tools (CAPTCHA solver removed in the GoMore fork).
     """
-    from mk_qa_master.server import list_tools
+    from gomore_qa_master.server import list_tools
 
     declared = {t.name for t in asyncio.run(list_tools())}
     assert len(declared) == 19, f"Expected 19 tools, got {len(declared)}: {sorted(declared)}"
@@ -78,7 +78,7 @@ def test_schemathesis_runner_registered():
     The runner class itself imports `schemathesis` lazily inside its
     methods, so this assertion is safe even when the optional
     `[api]` extra isn't installed."""
-    from mk_qa_master.runners import REGISTRY
+    from gomore_qa_master.runners import REGISTRY
 
     assert "schemathesis" in REGISTRY, (
         f"schemathesis runner not registered. Available: {sorted(REGISTRY)}"
@@ -99,7 +99,7 @@ def test_qa_lang_switches_builtin_methodology():
     'zh_TW', 'CN') normalize to 'zh-tw' via config.py; invalid values
     fall back to 'en' rather than raising — we'd rather serve the wrong
     language than crash the server boot."""
-    from mk_qa_master.tools.qa_context import _builtin_for_lang
+    from gomore_qa_master.tools.qa_context import _builtin_for_lang
 
     en_built = _builtin_for_lang("en")
     zh_built = _builtin_for_lang("zh-tw")
@@ -125,7 +125,7 @@ def test_qa_lang_alias_normalization():
     config.py under different env values."""
     import importlib
     import os
-    import mk_qa_master.config as cfg
+    import gomore_qa_master.config as cfg
 
     original = os.environ.get("QA_LANG")
     try:
@@ -154,7 +154,7 @@ def test_api_methodology_section_present_in_both_languages():
     """v0.6.2 adds an API Testing Methodology section in both languages.
     The English build advertises Pact + Schemathesis + idempotency keys;
     the Chinese build mirrors the same coverage with Chinese H2 titles."""
-    from mk_qa_master.tools.qa_context import _builtin_for_lang
+    from gomore_qa_master.tools.qa_context import _builtin_for_lang
 
     en_built = _builtin_for_lang("en")
     zh_built = _builtin_for_lang("zh-tw")
@@ -176,7 +176,7 @@ def test_flakiness_taxonomy_present_in_both_languages():
     five causes are: race conditions, external dependencies, order-dependent
     tests, time-sensitive tests, resource leaks. Each block must carry the
     smell / fix / example trio."""
-    from mk_qa_master.tools.qa_context import _builtin_for_lang
+    from gomore_qa_master.tools.qa_context import _builtin_for_lang
 
     en_built = _builtin_for_lang("en")
     zh_built = _builtin_for_lang("zh-tw")
@@ -199,7 +199,7 @@ def test_captcha_section_present_in_both_languages():
     The section codifies the Tier 1 / 2 / 3 bypass-first decision flow and
     cites the official Google reCAPTCHA test keys so users land on the
     industry-standard fix rather than reaching for a solver."""
-    from mk_qa_master.tools.qa_context import _builtin_for_lang
+    from gomore_qa_master.tools.qa_context import _builtin_for_lang
 
     en_built = _builtin_for_lang("en")
     zh_built = _builtin_for_lang("zh-tw")
@@ -225,7 +225,7 @@ def test_newman_runner_registered():
     called, so this assertion is safe even when newman isn't installed
     on the test runner's PATH (Newman is npm-side and CI installs it
     in a dedicated job)."""
-    from mk_qa_master.runners import REGISTRY
+    from gomore_qa_master.runners import REGISTRY
 
     assert "newman" in REGISTRY, (
         f"newman runner not registered. Available: {sorted(REGISTRY)}"

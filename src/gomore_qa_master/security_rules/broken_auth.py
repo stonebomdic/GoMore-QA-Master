@@ -63,7 +63,7 @@ from .headers_misconfig import _resolve_path
 # Random secret for the WrongSignature probe. Hardcoded because it's
 # meant to be DIFFERENT from any real server's secret — the value
 # itself doesn't matter as long as it never accidentally matches.
-_ATTACKER_SECRET = "attacker-key-not-real-anywhere-2026-mk-qa-master-v0.8"
+_ATTACKER_SECRET = "attacker-key-not-real-anywhere-2026-gomore-qa-master-v0.8"
 
 
 def _forge_alg_none_jwt(claims: dict) -> str:

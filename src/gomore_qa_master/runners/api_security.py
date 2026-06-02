@@ -5,7 +5,7 @@ Sibling to `schemathesis.py` (correctness fuzz) and `newman.py`
 scans against an OpenAPI spec.
 
 The runner is a thin orchestrator. The interesting code lives in
-`mk_qa_master.security_rules.*` — this module just:
+`gomore_qa_master.security_rules.*` — this module just:
 
   1. Loads the OpenAPI spec (URL or file://)
   2. Walks paths × methods, building OperationContext entries

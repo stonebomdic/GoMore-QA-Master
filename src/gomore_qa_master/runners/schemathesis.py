@@ -9,7 +9,7 @@ produces so every downstream consumer (optimizer, history, HTML
 reporter, get_failure_details) keeps working without runner-specific
 branches.
 
-Schemathesis is an optional dep: `pip install 'mk-qa-master[api]'`.
+Schemathesis is an optional dep: `pip install 'gomore-qa-master[api]'`.
 The runner imports it lazily so the base install stays slim and users
 who never run API tests don't pay for the dependency.
 """
@@ -98,13 +98,13 @@ def _require_schemathesis_cli() -> str:
     except ImportError as e:
         raise ImportError(
             "schemathesis is not installed. Install with: "
-            "pip install 'mk-qa-master[api]'"
+            "pip install 'gomore-qa-master[api]'"
         ) from e
     cli = shutil.which("schemathesis")
     if not cli:
         raise ImportError(
             "schemathesis CLI not found on PATH. Install with: "
-            "pip install 'mk-qa-master[api]'"
+            "pip install 'gomore-qa-master[api]'"
         )
     return cli
 
@@ -326,7 +326,7 @@ class SchemathesisRunner(TestRunner):
 
         # Schemathesis 3.x does NOT have a JSON-report flag; --junit-xml is
         # the only structured output. We parse JUnit XML in _normalize_report
-        # and translate to mk-qa-master's report.json shape from there.
+        # and translate to gomore-qa-master's report.json shape from there.
         cmd: list[str] = [cli, "run", "--hypothesis-database=none",
                           f"--hypothesis-max-examples={max_examples}",
                           f"--junit-xml={JUNIT_PATH}"]
@@ -457,7 +457,7 @@ class SchemathesisRunner(TestRunner):
                 })
 
         # Errors collapse into "failed" for the summary; JUnit distinguishes
-        # them but mk-qa-master's existing pipeline only knows passed/failed/skipped.
+        # them but gomore-qa-master's existing pipeline only knows passed/failed/skipped.
         _ = errors
         report = {
             "summary": {

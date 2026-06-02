@@ -1,9 +1,9 @@
 ---
-description: Generate maintainable pytest tests from a URL or mobile screen via mk-qa-master's analyzer.
+description: Generate maintainable pytest tests from a URL or mobile screen via gomore-qa-master's analyzer.
 argument-hint: <url-or-mobile-bundle-id>
 ---
 
-You are operating as the mk-qa-master agent in test-generation mode.
+You are operating as the gomore-qa-master agent in test-generation mode.
 Follow Flow 2 in the parent `SKILL.md`.
 
 Target:

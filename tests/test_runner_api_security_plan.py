@@ -11,8 +11,8 @@ import json
 
 import pytest
 
-from mk_qa_master.runners.api_security import run_scan
-from mk_qa_master.tools.qa_plan import _reset_cache_for_tests, qa_plan_tool
+from gomore_qa_master.runners.api_security import run_scan
+from gomore_qa_master.tools.qa_plan import _reset_cache_for_tests, qa_plan_tool
 
 
 @pytest.fixture
@@ -112,8 +112,8 @@ def test_findings_above_threshold_passed_to_verify_plan(
 ):
     """Inject a synthesized HIGH finding and confirm the CP's hint
     matches against it through the plan verification step."""
-    from mk_qa_master.security_rules import ALL_RULES
-    from mk_qa_master.security_rules.base import Finding, Severity
+    from gomore_qa_master.security_rules import ALL_RULES
+    from gomore_qa_master.security_rules.base import Finding, Severity
 
     fake_findings = [
         Finding(
@@ -148,8 +148,8 @@ def test_findings_below_threshold_invisible_to_verify(
 ):
     """The doc caveat in action — INFO finding doesn't satisfy a CP
     when severity_threshold='medium'."""
-    from mk_qa_master.security_rules import ALL_RULES
-    from mk_qa_master.security_rules.base import Finding, Severity
+    from gomore_qa_master.security_rules import ALL_RULES
+    from gomore_qa_master.security_rules.base import Finding, Severity
 
     info_finding = [
         Finding(
@@ -181,8 +181,8 @@ def test_findings_below_threshold_visible_when_threshold_lowered(
 ):
     """Same situation as above — but with severity_threshold='info'
     the finding does flow through and the CP matches."""
-    from mk_qa_master.security_rules import ALL_RULES
-    from mk_qa_master.security_rules.base import Finding, Severity
+    from gomore_qa_master.security_rules import ALL_RULES
+    from gomore_qa_master.security_rules.base import Finding, Severity
 
     info_finding = [
         Finding(

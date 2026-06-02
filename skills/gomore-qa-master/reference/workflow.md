@@ -1,4 +1,4 @@
-# mk-qa-master — Workflow Reference
+# gomore-qa-master — Workflow Reference
 
 Detailed expansion of the five flows in `SKILL.md`. Use this when you
 need a fuller mental model than the slash commands cover.

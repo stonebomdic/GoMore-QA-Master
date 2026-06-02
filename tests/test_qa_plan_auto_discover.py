@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from mk_qa_master.tools.qa_plan import (
+from gomore_qa_master.tools.qa_plan import (
     _reset_cache_for_tests,
     qa_plan_tool,
     verify_plan_tool,

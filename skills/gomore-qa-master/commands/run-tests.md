@@ -1,9 +1,9 @@
 ---
-description: Run a focused subset of the user's test suite via mk-qa-master, surface failures, and offer next steps.
+description: Run a focused subset of the user's test suite via gomore-qa-master, surface failures, and offer next steps.
 argument-hint: <optional filter keyword>
 ---
 
-You are operating as the mk-qa-master agent. The user wants to run their
+You are operating as the gomore-qa-master agent. The user wants to run their
 tests. Follow Flow 1 in the parent `SKILL.md`.
 
 Filter / keyword (if provided):

@@ -1,6 +1,6 @@
-# mk-qa-master — Tool Surface Cheatsheet (v0.9.4)
+# gomore-qa-master — Tool Surface Cheatsheet (v0.9.4)
 
-The 21 MCP tools currently exposed by mk-qa-master, grouped by flow.
+The 21 MCP tools currently exposed by gomore-qa-master, grouped by flow.
 One-liner + the input-schema gotchas you actually need to remember.
 
 ---
@@ -99,8 +99,8 @@ some clients), you can fall back to the CLI:
 
 ```bash
 # Direct module-level invocation
-python -m mk_qa_master.tools.visual_challenge --help
-python -m mk_qa_master.tools.runner list_tests
+python -m gomore_qa_master.tools.visual_challenge --help
+python -m gomore_qa_master.tools.runner list_tests
 ```
 
 But MCP-first is always preferred when the host supports it — the

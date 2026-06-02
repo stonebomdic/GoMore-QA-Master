@@ -3,7 +3,7 @@
 Hand it a Postman 2.x collection (plus optional environment / globals
 files) and Newman 6.x replays each request, runs the embedded
 `pm.test(...)` assertions, and emits a JSON report we can map directly
-to mk-qa-master's `report.json` shape. The same downstream pipeline
+to gomore-qa-master's `report.json` shape. The same downstream pipeline
 (history, optimizer, HTML reporter, get_failure_details) keeps working
 with no runner-specific branches.
 
@@ -437,7 +437,7 @@ class NewmanRunner(TestRunner):
         Per-execution + per-assertion mapping:
 
           run.executions[] × execution.assertions[] →
-            one mk-qa-master "test" per assertion (so a single request
+            one gomore-qa-master "test" per assertion (so a single request
             with three pm.test(...) calls becomes three nodeids — same
             granularity as Schemathesis's check breakdown).
 

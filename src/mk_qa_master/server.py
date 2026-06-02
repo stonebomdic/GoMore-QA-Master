@@ -3,10 +3,10 @@ import json
 import time
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, ImageContent, Resource
+from mcp.types import Tool, TextContent, Resource
 from pydantic import AnyUrl
 
-from .tools import runner, reporter, generator, analyzer, telemetry, optimizer, qa_context, visual_challenge
+from .tools import runner, reporter, generator, analyzer, telemetry, optimizer, qa_context
 from .runners import get_runner, REGISTRY
 from .reporters import html as html_reporter
 from .config import REPORT_PATH, OPTIMIZATION_PATH
@@ -522,101 +522,6 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="inspect_visual_challenge",
-            description=(
-                "Detect a reCAPTCHA v2 image-grid challenge on the active page, screenshot it, "
-                "and return tile metadata. The AI client (Claude / Cursor / Gemini — multimodal) "
-                "uses its own vision to identify which tiles to click, then calls "
-                "solve_visual_challenge with the selected indices. Requires "
-                "QA_VISUAL_CHALLENGE_CONSENT=true at the server level; without it, returns a "
-                "structured `consent_required` error carrying the full legal disclaimer.\n\n"
-                "Returns: {challenge_id, screenshot_base64, challenge_text, grid_layout "
-                "('3x3'|'4x4'), tile_count, tiles[{index, viewport_x, viewport_y, w, h}], "
-                "expires_at, fingerprint}.\n\n"
-                "Error shapes: consent_required / unauthorized_domain / forbidden_domain / "
-                "no_challenge_present / no_active_page / detection_failed — same {error, "
-                "retryable, hint} envelope as every other runner. Scope: reCAPTCHA v2 image-grid "
-                "only in v0.7.0 (hCaptcha → v0.7.1; v3 / Turnstile permanently out of scope). "
-                "Pair with solve_visual_challenge — this tool alone never clicks anything."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "page_id": {
-                        "type": "string",
-                        "description": (
-                            "Reserved for future multi-page sessions; ignored in v0.7.0 (the "
-                            "tool operates on the active Playwright page handed in by the runner)."
-                        ),
-                    },
-                    "selector": {
-                        "type": "string",
-                        "description": (
-                            "Optional override for the iframe selector. Default auto-detection "
-                            "tries `iframe[title*=\"recaptcha challenge\"]` (English UI) then "
-                            "`iframe[src*=\"recaptcha/api2/bframe\"]` (URL pattern, locale-agnostic)."
-                        ),
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="solve_visual_challenge",
-            description=(
-                "Apply the AI client's tile selection, execute the click chain, click Verify, "
-                "wait for the reCAPTCHA token, and return the outcome. Pairs with "
-                "inspect_visual_challenge — must be called with the `challenge_id` returned by "
-                "the previous inspect call.\n\n"
-                "Requires `confirm: true` as a safety latch — an accidental call without confirm "
-                "returns `confirm_required` without clicking anything. Also requires "
-                "QA_VISUAL_CHALLENGE_CONSENT=true at the server level.\n\n"
-                "DYNAMIC-REPLACE MODE (v0.7.4): when the challenge prompt says 'Click verify "
-                "once there are none left' (en) / '確定沒有遺漏' (zh), clicked tiles get "
-                "replaced with new images. solve detects this and returns `status: 'continue'` "
-                "with a FRESH screenshot + tile grid instead of clicking Verify. The AI should "
-                "look at the new screenshot and call solve again with the next matches. To "
-                "finalize (click Verify and check for a token), pass an empty "
-                "`selected_tile_indices: []`.\n\n"
-                "Returns: {status: 'passed' | 'continue' | 'failed' | 'expired' | "
-                "'consent_required' | 'confirm_required' | 'challenge_not_found' | 'error', "
-                "challenge_id, attempts_remaining, token (only on passed), hint, plus on "
-                "'continue': screenshot_base64, tiles, tile_count, grid_layout, rounds_used}. "
-                "Telemetry logs the boolean outcome only — no screenshots, no challenge text, "
-                "no tile selection are ever persisted."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "challenge_id": {
-                        "type": "string",
-                        "description": (
-                            "Required. The challenge_id returned by inspect_visual_challenge. "
-                            "Expires after 5 minutes; re-inspect to get a fresh id."
-                        ),
-                    },
-                    "selected_tile_indices": {
-                        "type": "array",
-                        "items": {"type": "integer", "minimum": 0},
-                        "description": (
-                            "Required. The tiles the AI client wants to click, by index "
-                            "(0..tile_count-1). For a 3x3 grid: tile 0 = top-left, 4 = center, "
-                            "8 = bottom-right. For a 4x4 grid: 0..15 row-major."
-                        ),
-                    },
-                    "confirm": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": (
-                            "Safety latch. MUST be set to true for the click chain to execute. "
-                            "Without it, returns `confirm_required` and clicks nothing — this "
-                            "prevents an accidental tool call from auto-submitting a CAPTCHA."
-                        ),
-                    },
-                },
-                "required": ["challenge_id", "selected_tile_indices"],
-            },
-        ),
-        Tool(
             name="auto_generate_tests",
             description=(
                 "一鍵交付：在內部依序做 analyze_url → 為每個偵測到的 module 用 candidate_tcs 內容"
@@ -1093,63 +998,10 @@ async def _dispatch(name: str, args: dict) -> list[TextContent]:
         )
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
-    if name == "inspect_visual_challenge":
-        # Sync Playwright API under the hood (mirrors how analyze_screen wraps
-        # its subprocess call). to_thread keeps the asyncio loop free even
-        # though the inspect path is short.
-        result = await asyncio.to_thread(
-            visual_challenge.inspect_visual_challenge_tool, args or {},
-        )
-        # v0.7.3: surface the screenshot as a native MCP ImageContent so
-        # multimodal AI clients (Claude Code, Cursor, etc.) can SEE the
-        # challenge directly — instead of receiving an unreadable base64
-        # string embedded in a JSON response. The metadata (challenge_id,
-        # tile coords, fingerprint, etc.) still rides in the TextContent.
-        b64 = result.pop("screenshot_base64", None) if isinstance(result, dict) else None
-        text_block = TextContent(
-            type="text",
-            text=json.dumps(result, ensure_ascii=False, indent=2),
-        )
-        if b64:
-            # Strip the data-URL prefix if present — MCP ImageContent.data
-            # is the raw base64 payload, not a data URL.
-            if isinstance(b64, str) and b64.startswith("data:"):
-                b64 = b64.split(",", 1)[1] if "," in b64 else b64
-            return [
-                ImageContent(type="image", data=b64, mimeType="image/png"),
-                text_block,
-            ]
-        return [text_block]
-
-    if name == "solve_visual_challenge":
-        result = await asyncio.to_thread(
-            visual_challenge.solve_visual_challenge_tool, args or {},
-        )
-        # v0.7.4: in dynamic-replace mode solve returns `status: continue`
-        # with a fresh screenshot of the updated grid — surface it as
-        # native MCP ImageContent so the AI client can see the new tiles
-        # without having to decode embedded base64.
-        b64 = (
-            result.pop("screenshot_base64", None)
-            if isinstance(result, dict) else None
-        )
-        text_block = TextContent(
-            type="text",
-            text=json.dumps(result, ensure_ascii=False, indent=2),
-        )
-        if b64:
-            if isinstance(b64, str) and b64.startswith("data:"):
-                b64 = b64.split(",", 1)[1] if "," in b64 else b64
-            return [
-                ImageContent(type="image", data=b64, mimeType="image/png"),
-                text_block,
-            ]
-        return [text_block]
-
     if name == "run_api_security_scan":
         # v0.8.0: OWASP API Top 10 rule-based scan. The runner does
-        # synchronous I/O (requests.* and urllib for spec load) so we
-        # punt it to a thread the same way visual_challenge does.
+        # synchronous I/O (requests.* and urllib for spec load) — punt
+        # to a thread to keep the asyncio loop free.
         from .runners.api_security import run_scan
         args = args or {}
         result = await asyncio.to_thread(

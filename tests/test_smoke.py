@@ -31,9 +31,6 @@ EXPECTED_TOOLS = {
     "init_qa_knowledge",
     "get_qa_context",
     "auto_generate_tests",
-    # v0.7.0 — AI Visual Challenge Solver (reCAPTCHA v2 image-grid)
-    "inspect_visual_challenge",
-    "solve_visual_challenge",
     # v0.8.0 — OWASP API Security Top 10 rule-based scanner
     "run_api_security_scan",
     # v0.9.1 — Plan-then-verify critical-points pattern (Webwright-inspired)
@@ -62,61 +59,17 @@ def test_list_tools_returns_advertised_surface():
     assert not missing, f"Expected tools missing from list_tools(): {missing}"
 
 
-def test_list_tools_count_matches_advertised_21():
-    """If the count drifts, README and the family-site claim of '21 tools'
+def test_list_tools_count_matches_advertised_19():
+    """If the count drifts, README and the family-site claim of '19 tools'
     is stale. Catch that here before users do.
-    v0.7.0 brought the count from 16 to 18 (visual challenge solver).
-    v0.8.0 brought it from 18 to 19 (run_api_security_scan).
-    v0.9.1 brought it from 19 to 21 (qa_plan + verify_plan).
+    v0.8.0 brought the count from 16 to 19 (run_api_security_scan; visual challenge removed).
+    v0.9.1 brought it from 17 to 19 (qa_plan + verify_plan).
     """
     from mk_qa_master.server import list_tools
 
     declared = {t.name for t in asyncio.run(list_tools())}
-    assert len(declared) == 21, f"Expected 21 tools, got {len(declared)}: {sorted(declared)}"
+    assert len(declared) == 19, f"Expected 19 tools, got {len(declared)}: {sorted(declared)}"
 
-
-def test_visual_challenge_tools_registered():
-    """v0.7.0: both new visual-challenge tools must be present in
-    list_tools() and mapped in the dispatch table. The second half
-    matters because a typo'd name in `_dispatch` would silently fall
-    through to the «unknown tool» branch."""
-    import asyncio as _asyncio
-    from mcp.types import TextContent
-
-    from mk_qa_master.server import list_tools, _dispatch
-
-    declared = {t.name for t in _asyncio.run(list_tools())}
-    assert "inspect_visual_challenge" in declared
-    assert "solve_visual_challenge" in declared
-
-    # Dispatch table mapping — calling the tool without env consent should
-    # produce a structured `consent_required` error rather than the
-    # "未知的 tool" fallback. That confirms the name is wired into the
-    # dispatcher.
-    out = _asyncio.run(_dispatch("inspect_visual_challenge", {}))
-    assert isinstance(out, list) and isinstance(out[0], TextContent)
-    assert "未知的 tool" not in out[0].text
-
-
-def test_consent_gate_blocks_without_env(monkeypatch):
-    """Without QA_VISUAL_CHALLENGE_CONSENT=true the tool must refuse with
-    the full disclaimer text — the AI client uses that text to surface
-    consent to the user. This is the §21 #2 ratification: server-level
-    consent on top of per-call confirm latch."""
-    import importlib
-
-    monkeypatch.delenv("QA_VISUAL_CHALLENGE_CONSENT", raising=False)
-
-    import mk_qa_master.config as cfg
-    importlib.reload(cfg)
-
-    from mk_qa_master.tools import visual_challenge as vc
-    importlib.reload(vc)
-
-    result = vc.inspect_visual_challenge_tool({})
-    assert result["error"] == "consent_required"
-    assert "QA_VISUAL_CHALLENGE_CONSENT" in result["hint"]
-    assert "ACCEPTABLE USE" in result["hint"]
 
 
 def test_schemathesis_runner_registered():
@@ -264,17 +217,6 @@ def test_captcha_section_present_in_both_languages():
     assert "Tier 1" in zh_built and "Tier 2" in zh_built and "Tier 3" in zh_built
     assert "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI" in zh_built
 
-
-def test_visual_challenge_fingerprint_table_includes_hcaptcha():
-    """v0.7.1: the fingerprint table must list both vendors. Order is
-    load-bearing — reCAPTCHA precedes hCaptcha so v0.7.0 callers seeing
-    a page with both iframes still match reCAPTCHA first (ratified
-    decision #1 in docs/prd-v0.7.1-hcaptcha.md §11)."""
-    from mk_qa_master.tools.visual_challenge import _FINGERPRINTS
-
-    ids = {fp["id"] for fp in _FINGERPRINTS}
-    assert "recaptcha-v2-image" in ids
-    assert "hcaptcha-image" in ids
 
 
 def test_newman_runner_registered():

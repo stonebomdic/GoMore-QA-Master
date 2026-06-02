@@ -1,0 +1,9 @@
+GoMore QA Master
+
+本專案 fork 自上游開源專案 mk-qa-master（MIT License，原作者見 LICENSE）。
+原始授權條款見 LICENSE 檔案，依 MIT 要求保留。
+
+本 fork 由 GoMore 內部維護與使用，並已：
+- rebrand 為 GoMore QA Master（套件 gomore_qa_master）
+- 移除 CAPTCHA（visual challenge）解題模組
+- 改為公司內部 Git 散佈（移除 PyPI / smithery 發佈）

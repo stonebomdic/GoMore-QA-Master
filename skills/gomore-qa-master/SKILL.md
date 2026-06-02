@@ -142,20 +142,16 @@ Goal: produce maintainable pytest tests automatically.
 5. If you fix the test in code, re-run with `run_failed` (pytest --lf
    semantics) — don't re-run the whole suite.
 
-### Flow 4 — "Solve a CAPTCHA blocking a test" (v0.7.0+)
-
-Critical: requires `QA_VISUAL_CHALLENGE_CONSENT=true` in the host env. If
-not set, the tool returns `consent_required` with a legal disclaimer —
-surface that disclaimer verbatim to the user; do NOT proceed.
+### Flow 4 — "Handle a CAPTCHA blocking a test"
 
 The QA knowledge layer (`get_qa_context section="CAPTCHA"`) codifies three
-tiers before escalating to AI visual judgment:
+tiers — always attempt in order:
 
 1. **Bypass**: reCAPTCHA test keys, feature flags, IP allowlist —
    covers ~90% of QA scenarios.
 2. **Degrade**: mark as `external_dependency`, skip downstream
    assertions.
-3. **AI visual judgment** (v0.7+): only when 1+2 don't fit.
+3. Escalate to a human if neither tier 1 nor tier 2 applies.
 
 Read `reference/captcha-solver.md` for the bypass-first methodology.
 

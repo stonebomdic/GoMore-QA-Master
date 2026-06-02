@@ -106,10 +106,7 @@ run_failed                            # pytest --lf only
 
 ---
 
-## Flow 4 — Solve a CAPTCHA blocking a test (v0.7.0+)
-
-Gates: `QA_VISUAL_CHALLENGE_CONSENT=true` + optionally
-`QA_VISUAL_CHALLENGE_AUTHORIZED_DOMAINS`.
+## Flow 4 — Handle a CAPTCHA blocking a test
 
 The built-in QA knowledge (`get_qa_context section="CAPTCHA"`) codifies
 three tiers — always attempt in order:
@@ -118,7 +115,7 @@ three tiers — always attempt in order:
    covers ~90% of QA scenarios.
 2. **Degrade**: mark as `external_dependency`, skip downstream
    assertions.
-3. **AI visual judgment** (v0.7+): only when 1+2 don't fit.
+3. Escalate to a human if neither tier 1 nor tier 2 applies.
 
 If the user is hitting CAPTCHAs in dev, suggest tier 1 first.
 

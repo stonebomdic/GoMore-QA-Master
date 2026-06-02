@@ -67,9 +67,6 @@ Use them as bookends around Flows 1-5. Skip for one-shot reads.
 | `QA_RUNNER` | Picking a non-pytest backend | `pytest` |
 | `QA_PROJECT_ROOT` | Where tests live | CWD |
 | `QA_LANG` | QA knowledge bilingual selection | `en` |
-| `QA_VISUAL_CHALLENGE_CONSENT` | v0.7 tools | unset (refuses to run) |
-| `QA_VISUAL_CHALLENGE_AUTHORIZED_DOMAINS` | v0.7 production scope | unset (warn-only) |
-| `QA_VISUAL_CHALLENGE_TIMEOUT` | v0.7 wall-clock | `120` seconds |
 | `QA_API_SECURITY_CONSENT` | v0.8 scanner | unset (refuses to run) |
 | `QA_API_SECURITY_AUTHORIZED_DOMAINS` | v0.8 external hosts | unset (only localhost allowed) |
 

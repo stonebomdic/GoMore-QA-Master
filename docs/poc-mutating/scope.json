@@ -106,10 +106,6 @@
     },
     {
       "method": "POST",
-      "path": "/admin/missions/import"
-    },
-    {
-      "method": "POST",
       "path": "/account/health/steps"
     },
     {
@@ -158,10 +154,6 @@
     },
     {
       "method": "POST",
-      "path": "/food/import-csv"
-    },
-    {
-      "method": "POST",
       "path": "/admin/managers"
     },
     {
@@ -183,10 +175,6 @@
     {
       "method": "PUT",
       "path": "/nutrition/food/{foodId}"
-    },
-    {
-      "method": "POST",
-      "path": "/nutrition/batch/quick-import"
     },
     {
       "method": "PATCH",
@@ -218,18 +206,6 @@
     },
     {
       "method": "POST",
-      "path": "/admin/companies/{companyId}/employees/import-csv"
-    },
-    {
-      "method": "POST",
-      "path": "/admin/companies/{companyId}/push"
-    },
-    {
-      "method": "PUT",
-      "path": "/admin/companies/{companyId}/push/{id}"
-    },
-    {
-      "method": "POST",
       "path": "/admin/companies/{companyId}/departments"
     },
     {
@@ -243,14 +219,6 @@
     {
       "method": "PUT",
       "path": "/admin/users/{id}/superuser"
-    },
-    {
-      "method": "POST",
-      "path": "/admin/notifications/push"
-    },
-    {
-      "method": "PUT",
-      "path": "/admin/notifications/push/{id}"
     },
     {
       "method": "POST",
@@ -379,18 +347,6 @@
     {
       "method": "PATCH",
       "path": "/admin/activities/muscle-fat/{id}"
-    },
-    {
-      "method": "POST",
-      "path": "/tool/user-access-token"
-    },
-    {
-      "method": "POST",
-      "path": "/tool/admin-access-token"
-    },
-    {
-      "method": "POST",
-      "path": "/tool/adjust-subscription"
     }
   ],
   "no_body_schema": [
@@ -429,30 +385,6 @@
     {
       "method": "POST",
       "path": "/admin/companies/{companyId}/employees/{employeeId}/suspend"
-    },
-    {
-      "method": "POST",
-      "path": "/admin/companies/{companyId}/push/{id}/send"
-    },
-    {
-      "method": "POST",
-      "path": "/admin/companies/{companyId}/push/{id}/schedule"
-    },
-    {
-      "method": "POST",
-      "path": "/admin/companies/{companyId}/push/{id}/cancel"
-    },
-    {
-      "method": "POST",
-      "path": "/admin/notifications/push/{id}/send"
-    },
-    {
-      "method": "POST",
-      "path": "/admin/notifications/push/{id}/schedule"
-    },
-    {
-      "method": "POST",
-      "path": "/admin/notifications/push/{id}/cancel"
     },
     {
       "method": "PUT",
@@ -586,6 +518,18 @@
     },
     {
       "method": "POST",
+      "path": "/admin/missions/import"
+    },
+    {
+      "method": "POST",
+      "path": "/food/import-csv"
+    },
+    {
+      "method": "POST",
+      "path": "/nutrition/batch/quick-import"
+    },
+    {
+      "method": "POST",
       "path": "/iap/webhooks/apple"
     },
     {
@@ -607,6 +551,62 @@
     {
       "method": "POST",
       "path": "/notifications/token"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/employees/import-csv"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/push"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/companies/{companyId}/push/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/push/{id}/send"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/push/{id}/schedule"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/push/{id}/cancel"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/notifications/push"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/notifications/push/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/notifications/push/{id}/send"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/notifications/push/{id}/schedule"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/notifications/push/{id}/cancel"
+    },
+    {
+      "method": "POST",
+      "path": "/tool/user-access-token"
+    },
+    {
+      "method": "POST",
+      "path": "/tool/admin-access-token"
+    },
+    {
+      "method": "POST",
+      "path": "/tool/adjust-subscription"
     }
   ]
 }

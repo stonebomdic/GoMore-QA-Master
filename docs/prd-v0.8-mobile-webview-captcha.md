@@ -1,4 +1,4 @@
-# mk-qa-master v0.8.0 — Mobile WebView CAPTCHA Solver (mini-PRD)
+# gomore-qa-master v0.8.0 — Mobile WebView CAPTCHA Solver (mini-PRD)
 
 > ⚠️ **PARKED — read [`docs/v0.8-mobile-postmortem.md`](v0.8-mobile-postmortem.md) before acting on this document.**
 > The mega-YAML architecture below was built on a false assumption about Maestro's `runScript:` directive (it runs in a GraalJS sandbox, not in the device WebView). The Maestro-driver PRs (#54, #55) have been reverted. The Driver Protocol (#52–53) and sample app (#56) are kept. This PRD is preserved as a historical artifact — do not implement against it.
@@ -23,7 +23,7 @@ When a QA engineer runs a Maestro flow against a staging build and hits a reCAPT
 
 ## 2. Problem Statement
 
-User-side: mobile QA via Maestro is the only cross-platform mobile-UI test path in mk-qa-master (v0.6.0 runner). The moment a staging build's signup flow surfaces a captcha challenge inside its embedded WebView, the engineer either:
+User-side: mobile QA via Maestro is the only cross-platform mobile-UI test path in gomore-qa-master (v0.6.0 runner). The moment a staging build's signup flow surfaces a captcha challenge inside its embedded WebView, the engineer either:
 - Manually solves it on the device every test run (≈ 30 s of human time per CI run), or
 - Disables captcha in staging via a backend flag (often forbidden by ops, or requires backend coordination), or
 - Skips the captcha-protected paths entirely (test coverage gap).
@@ -414,4 +414,4 @@ Subsequent work:
 
 ---
 
-*End of mini-PRD v0.2 for mk-qa-master v0.8.0. Cross-reference: `docs/prd-v0.7-visual-challenge.md` (architecture), `docs/prd-v0.7.1-hcaptcha.md` (mini-PRD template followed here), `scripts/spike-maestro-perf.py` (gate).*
+*End of mini-PRD v0.2 for gomore-qa-master v0.8.0. Cross-reference: `docs/prd-v0.7-visual-challenge.md` (architecture), `docs/prd-v0.7.1-hcaptcha.md` (mini-PRD template followed here), `scripts/spike-maestro-perf.py` (gate).*

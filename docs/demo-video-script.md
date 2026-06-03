@@ -1,4 +1,4 @@
-# Demo Video Script — mk-qa-master
+# Demo Video Script — gomore-qa-master
 
 兩個版本：**A. 60 秒社群版**（X / LinkedIn / Reddit / PH 預告），**B. 3 分鐘完整版**（YouTube / Smithery listing 嵌入）。同一次錄製可以一鏡到底拍滿 3 分鐘，再剪出 60 秒。
 
@@ -36,7 +36,7 @@
 | 0:25–0:40 | Claude 呼叫 `run_tests` → terminal 跑出 pytest passing → Claude 回 summary | 「Then it runs it. Real browser. Real assertions.」 |
 | 0:40–0:50 | Claude 呼叫 `generate_html_report` → 瀏覽器自動開啟 HTML 報告 | 「One self-contained HTML report you can ship to Slack.」 |
 | 0:50–0:58 | 切五個 logo 拼貼：pytest / Jest / Cypress / Go / Maestro，下方字卡：「**Same loop. 5 runners. Web + mobile.**」 | 「Works across pytest, Jest, Cypress, Go test, and Maestro.」 |
-| 0:58–1:00 | 結尾卡：`smithery.ai/server/kao273183/mk-qa-master` + GitHub URL | 無旁白 |
+| 0:58–1:00 | 結尾卡：`smithery.ai/server/kao273183/gomore-qa-master` + GitHub URL | 無旁白 |
 
 ### 60 秒版貼文模板（X / LinkedIn）
 
@@ -48,8 +48,8 @@
 
 同一條 loop 支援 pytest / Jest / Cypress / Go / Maestro（含手機）。
 
-GitHub: github.com/kao273183/mk-qa-master
-Smithery: smithery.ai/server/kao273183/mk-qa-master
+GitHub: github.com/kao273183/gomore-qa-master
+Smithery: smithery.ai/server/kao273183/gomore-qa-master
 ```
 
 ---
@@ -63,7 +63,7 @@ Smithery: smithery.ai/server/kao273183/mk-qa-master
 - 字卡：「**寫測試很煩。維護測試更煩。**」
 - 旁白：「你打開 Playwright codegen、點半天、產一坨難讀的 code、複製貼上、改 selector、跑、紅、再改。下次 UI 動了，再來一輪。」
 - 切 Claude Desktop：「但 LLM 有 MCP 以後不該是這樣。」
-- 字卡：「**mk-qa-master — 一個 MCP，五個 runner，從 analyze 到 coach。**」
+- 字卡：「**gomore-qa-master — 一個 MCP，五個 runner，從 analyze 到 coach。**」
 
 ### 0:30–1:30 Web 流程（pytest-playwright）
 
@@ -96,9 +96,9 @@ Smithery: smithery.ai/server/kao273183/mk-qa-master
 
 - 字卡：「**One MCP. 5 runners. Web + mobile. Analyze → generate → run → coach.**」
 - 顯示三個 CTA：
-  - `smithery.ai/server/kao273183/mk-qa-master`
-  - `github.com/kao273183/mk-qa-master`
-  - `pip install mk-qa-master` / `uvx mk-qa-master`
+  - `smithery.ai/server/kao273183/gomore-qa-master`
+  - `github.com/kao273183/gomore-qa-master`
+  - `pip install gomore-qa-master` / `uvx gomore-qa-master`
 - 旁白：「Open source, MIT. Star it on GitHub or one-click install from Smithery.」
 
 ---

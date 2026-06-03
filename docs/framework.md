@@ -55,13 +55,13 @@ MCP 三大原語在 QA 場景的對應：
 ## 專案結構
 
 ```
-mk-qa-master/
+gomore-qa-master/
 ├── pyproject.toml
 ├── README.md
 ├── docs/                              # framework.md, qa-knowledge.example.md
 ├── examples/configs/                  # client config examples
 ├── src/
-│   └── mk_qa_master/
+│   └── gomore_qa_master/
 │       ├── __init__.py
 │       ├── server.py            # MCP 入口
 │       ├── config.py            # 設定（受測專案路徑等）
@@ -86,7 +86,7 @@ mk-qa-master/
 
 ```toml
 [project]
-name = "mk-qa-master"
+name = "gomore-qa-master"
 version = "0.1.0"
 description = "QA Test Automation MCP Server"
 requires-python = ">=3.10"
@@ -99,7 +99,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mk-qa-master = "mk_qa_master.server:run"
+gomore-qa-master = "gomore_qa_master.server:run"
 
 [build-system]
 requires = ["hatchling"]
@@ -108,7 +108,7 @@ build-backend = "hatchling.build"
 
 ---
 
-### `src/mk_qa_master/config.py`
+### `src/gomore_qa_master/config.py`
 
 ```python
 from pathlib import Path
@@ -124,7 +124,7 @@ ARTIFACTS_DIR = PROJECT_ROOT / "test-results"
 
 ---
 
-### `src/mk_qa_master/tools/runner.py`
+### `src/gomore_qa_master/tools/runner.py`
 
 ```python
 import subprocess
@@ -181,7 +181,7 @@ def run_failed() -> dict:
 
 ---
 
-### `src/mk_qa_master/tools/reporter.py`
+### `src/gomore_qa_master/tools/reporter.py`
 
 ```python
 import json
@@ -223,7 +223,7 @@ def get_failure_details(test_id: str | None = None) -> list[dict]:
 
 ---
 
-### `src/mk_qa_master/tools/generator.py`
+### `src/gomore_qa_master/tools/generator.py`
 
 ```python
 from pathlib import Path
@@ -271,7 +271,7 @@ def codegen(url: str, output: str = "recorded_test.py") -> str:
 
 ---
 
-### `src/mk_qa_master/server.py`
+### `src/gomore_qa_master/server.py`
 
 ```python
 import asyncio
@@ -282,7 +282,7 @@ from mcp.types import Tool, TextContent
 
 from .tools import runner, reporter, generator
 
-app = Server("mk-qa-master")
+app = Server("gomore-qa-master")
 
 
 @app.list_tools()
@@ -456,7 +456,7 @@ def test_link_visible(page: Page):
 
 ```bash
 # 建立專案
-mkdir mk-qa-master && cd mk-qa-master
+mkdir gomore-qa-master && cd gomore-qa-master
 
 # 建立虛擬環境
 python -m venv .venv
@@ -477,19 +477,19 @@ playwright install
 ```json
 {
   "mcpServers": {
-    "mk-qa-master": {
+    "gomore-qa-master": {
       "command": "python",
-      "args": ["-m", "mk_qa_master.server"],
-      "cwd": "/absolute/path/to/mk-qa-master",
+      "args": ["-m", "gomore_qa_master.server"],
+      "cwd": "/absolute/path/to/gomore-qa-master",
       "env": {
-        "QA_PROJECT_ROOT": "/absolute/path/to/mk-qa-master/tests_project"
+        "QA_PROJECT_ROOT": "/absolute/path/to/gomore-qa-master/tests_project"
       }
     }
   }
 }
 ```
 
-重啟 Claude Desktop，左下角應該看到 `mk-qa-master` 的工具圖示。
+重啟 Claude Desktop，左下角應該看到 `gomore-qa-master` 的工具圖示。
 
 ---
 

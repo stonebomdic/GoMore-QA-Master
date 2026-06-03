@@ -14,7 +14,7 @@
 >
 > | Layer | What it provides | Where it lives |
 > |---|---|---|
-> | **Built-in methodology** (ISTQB / boundary values / test pyramid / regression / mobile / metrics / API testing / flakiness taxonomy / test doubles / test data) | The "**how to test**" industry-standard concepts | Bundled with mk-qa-master; `get_qa_context` returns it automatically |
+> | **Built-in methodology** (ISTQB / boundary values / test pyramid / regression / mobile / metrics / API testing / flakiness taxonomy / test doubles / test data) | The "**how to test**" industry-standard concepts | Bundled with gomore-qa-master; `get_qa_context` returns it automatically |
 > | **Domain knowledge** (business rules / historical bugs / standard assertion strings / journeys / technical constraints) | The "**what to test**" project-specific knowledge | Your own `qa-knowledge.md` (this file shows how to fill it in) |
 >
 > ## How to use this example

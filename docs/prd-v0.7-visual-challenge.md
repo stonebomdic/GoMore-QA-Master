@@ -1,4 +1,4 @@
-# mk-qa-master v0.7 — AI Visual Challenge Solver
+# gomore-qa-master v0.7 — AI Visual Challenge Solver
 
 **Status:** Draft v0.1 · **Author:** Jack Kao (kao273183) · **Last updated:** 2026-05-18 · **Target ship:** v0.7.0 within 2 weeks
 
@@ -8,7 +8,7 @@
 
 > **The MCP family's first capability that genuinely depends on the AI client being multimodal — and uses that dependency as the architectural insight, not a workaround.**
 
-mk-qa-master's runner abstraction (7 runners across web / mobile / API) handles everything the AI client *doesn't* need to see to decide. But CAPTCHA challenges are a class of problem where **the AI literally has to look at pixels**. Until now we deflected: the v0.6.3 knowledge layer recommends Tier 1 (backend bypass) for 90% of cases. v0.7.0 builds the Tier 3 escape hatch — the AI client's vision capability becomes the solver, MCP becomes the eyes and hands.
+gomore-qa-master's runner abstraction (7 runners across web / mobile / API) handles everything the AI client *doesn't* need to see to decide. But CAPTCHA challenges are a class of problem where **the AI literally has to look at pixels**. Until now we deflected: the v0.6.3 knowledge layer recommends Tier 1 (backend bypass) for 90% of cases. v0.7.0 builds the Tier 3 escape hatch — the AI client's vision capability becomes the solver, MCP becomes the eyes and hands.
 
 Two tools added (16 → 18 total):
 
@@ -44,7 +44,7 @@ v0.7.0 is the explicit-opt-in escape hatch for these 10% cases. **Default behavi
 
 ## 3. Why now
 
-- **The MCP family is now demonstrably multimodal-ready**. Anthropic shipped Claude Sonnet 4 vision; GPT-4o is standard at OpenAI; Gemini 2.5 ships native vision. Every major AI client mk-qa-master integrates with has vision. The architectural assumption is no longer speculative.
+- **The MCP family is now demonstrably multimodal-ready**. Anthropic shipped Claude Sonnet 4 vision; GPT-4o is standard at OpenAI; Gemini 2.5 ships native vision. Every major AI client gomore-qa-master integrates with has vision. The architectural assumption is no longer speculative.
 - **v0.6.3 forward-pointer is on the record**. The knowledge layer explicitly mentions `solve_visual_challenge`; shipping it within a release cycle keeps that promise concrete.
 - **v0.6.0/0.6.1 proved the "AI doesn't need to know the runner" pattern**. Both Schemathesis and Newman work through the same 16-tool surface. v0.7.0 inverts: the AI client needs to *look*, not the runner. The pattern is symmetric — and adding tools (vs new runner) makes that symmetry visible.
 - **No competitor MCP solves this**. The category is "OSS MCP that helps with visual CAPTCHA". There are commercial solvers (2Captcha, Anti-Captcha, CapMonster) but none MCP-native. Window is open.
@@ -81,7 +81,7 @@ Five differentiators:
 
 **Secondary:** Indie devs / solo founders dogfooding their own product whose staging happens to mirror production CAPTCHA without test-key swap.
 
-**Tertiary:** Manual testers using mk-qa-master as a power-user remote-control during exploratory sessions.
+**Tertiary:** Manual testers using gomore-qa-master as a power-user remote-control during exploratory sessions.
 
 **Anti-personas:**
 
@@ -124,8 +124,8 @@ Five differentiators:
 ## 7. System Architecture
 
 ```
-mk-qa-master/
-├── src/mk_qa_master/
+gomore-qa-master/
+├── src/gomore_qa_master/
 │   ├── tools/
 │   │   ├── visual_challenge.py     # NEW — inspect + solve handlers
 │   │   ├── analyzer.py             # existing
@@ -162,7 +162,7 @@ mk-qa-master/
 
 **Why two tools, not one:**
 
-A single composite tool would have to block waiting for the AI client's vision response, then click — but MCP tool calls are atomic and serialized. The two-tool design lets each call return immediately; the AI client decides between them. This matches every other tool in mk-qa-master (`run_tests`, `get_optimization_plan`, etc.) — each is a discrete decision boundary.
+A single composite tool would have to block waiting for the AI client's vision response, then click — but MCP tool calls are atomic and serialized. The two-tool design lets each call return immediately; the AI client decides between them. This matches every other tool in gomore-qa-master (`run_tests`, `get_optimization_plan`, etc.) — each is a discrete decision boundary.
 
 **Tool signatures:**
 
@@ -249,33 +249,33 @@ When `QA_VISUAL_CHALLENGE_AUTHORIZED_DOMAINS` is set, the tools check `page.url`
 
 ## 11. Integration with existing surface
 
-**No MCP-to-MCP RPC.** Same as the rest of mk-qa-master.
+**No MCP-to-MCP RPC.** Same as the rest of gomore-qa-master.
 
 **No automatic CAPTCHA handling in `run_tests`.** Explicit opt-in only. A `run_tests` session that hits a CAPTCHA fails normally with an `external_dependency` classification (per v0.6.3 Tier 2). The user has to explicitly call `inspect_visual_challenge` if they want to escalate to Tier 3.
 
 Canonical chain in a Claude / Cursor session:
 
 ```
-1.  mk-qa-master.run_tests()
+1.  gomore-qa-master.run_tests()
     → 1 test failed, classified `external_dependency` (CAPTCHA detected)
     → optimization-plan.md notes: "use inspect_visual_challenge to attempt resolution"
 
 2.  user: "Try solving it"
 
-3.  mk-qa-master.inspect_visual_challenge(page_id=<from-failed-run>)
+3.  gomore-qa-master.inspect_visual_challenge(page_id=<from-failed-run>)
     → returns screenshot + tile grid + challenge_id
 
 4.  AI client examines the screenshot
     → "Tiles 0, 4, 7 contain traffic lights"
 
-5.  mk-qa-master.solve_visual_challenge(
+5.  gomore-qa-master.solve_visual_challenge(
         challenge_id="abc-123",
         selected_tile_indices=[0, 4, 7],
         confirm=True,
     )
     → status: "passed", token: "..."
 
-6.  mk-qa-master.run_failed()
+6.  gomore-qa-master.run_failed()
     → previously-blocked tests now run, pass downstream
 ```
 
@@ -285,7 +285,7 @@ The optimizer surfaces CAPTCHA-classified failures with an explicit pointer at t
 
 ## 12. Self-reinforcement
 
-The CAPTCHA solver participates in mk-qa-master's existing optimizer pipeline:
+The CAPTCHA solver participates in gomore-qa-master's existing optimizer pipeline:
 
 - **Suite quality lens**: a test that consistently fails at the CAPTCHA boundary gets classified `external_dependency` (already exists from v0.6.x). The optimizer notes "try inspect_visual_challenge" in the plan.
 - **MCP usability lens**: telemetry tracks (`inspect_visual_challenge → solve_visual_challenge`) as a known pair, surfacing common chains. If users call `inspect` twice in a row (a sign the first AI attempt failed), the lens flags it.
@@ -338,7 +338,7 @@ The CAPTCHA solver participates in mk-qa-master's existing optimizer pipeline:
 | R1 | Google detects automation + bans the IP / session | Documented loudly. Tools include a "this may be detected" warning in the response payload. Mitigation: use stealth plugins (playwright-extra), residential proxies, real browser profiles. |
 | R2 | TOS / legal exposure for users running against third-party sites | Hard-stops on known third-party login domains. Disclaimer in error message. README has a dedicated "Acceptable Use" section. License unchanged (MIT). |
 | R3 | AI client's vision performance varies wildly across Claude / GPT-4o / Gemini / Cursor | Document expected success rate per client based on internal benchmarks (when available). |
-| R4 | Solving CAPTCHAs becomes the "thing people use mk-qa-master for" — distracts from core QA narrative | Keep the feature opt-in by env var. Position as Tier 3 escape hatch, not headline capability. README leads with web/mobile/API testing; CAPTCHA solver is below the fold. |
+| R4 | Solving CAPTCHAs becomes the "thing people use gomore-qa-master for" — distracts from core QA narrative | Keep the feature opt-in by env var. Position as Tier 3 escape hatch, not headline capability. README leads with web/mobile/API testing; CAPTCHA solver is below the fold. |
 
 ---
 
@@ -368,12 +368,12 @@ The CAPTCHA solver participates in mk-qa-master's existing optimizer pipeline:
 
 ## 17. Open Source Strategy
 
-- License: MIT (mirror existing mk-qa-master)
+- License: MIT (mirror existing gomore-qa-master)
 - Repo: same repo, branch `feat/visual-challenge-v0.7` → PR → squash merge
 - CI from day 1: extend `ci.yml` with `api-captcha` job using a Playwright route-mock fixture (no live Google network calls)
 - No new optional dep — uses Playwright (already a base dep)
 - Blog post on launch: dedicated post explaining the consent model + when to use Tier 1 vs Tier 3
-- Show HN at v0.7.0 ship: `Show HN: mk-qa-master v0.7 — Claude solves reCAPTCHA through this MCP, no new vendor`
+- Show HN at v0.7.0 ship: `Show HN: gomore-qa-master v0.7 — Claude solves reCAPTCHA through this MCP, no new vendor`
 
 ---
 
@@ -387,7 +387,7 @@ The CAPTCHA solver participates in mk-qa-master's existing optimizer pipeline:
 | Tool 2 id | `solve_visual_challenge` |
 | Env var prefix | `QA_VISUAL_CHALLENGE_*` |
 | Version target | v0.7.0 |
-| Tagline in README | "When backend bypass isn't an option: Claude looks at the CAPTCHA, mk-qa-master does the clicks." |
+| Tagline in README | "When backend bypass isn't an option: Claude looks at the CAPTCHA, gomore-qa-master does the clicks." |
 
 **Why not `solve_captcha` / `inspect_captcha`:**
 
@@ -397,7 +397,7 @@ The pattern (screenshot + tile selection + click chain) generalizes beyond CAPTC
 
 ## 19. Walkthrough Example
 
-A solo dev running mk-qa-master against their client's staging site, with written authorization, where backend bypass isn't available.
+A solo dev running gomore-qa-master against their client's staging site, with written authorization, where backend bypass isn't available.
 
 **Step 1 — Initial setup:**
 
@@ -411,7 +411,7 @@ export QA_VISUAL_CHALLENGE_AUTHORIZED_DOMAINS=client-staging.example.com
 **Step 2 — Run tests, hit CAPTCHA:**
 
 ```
-mk-qa-master.run_tests()
+gomore-qa-master.run_tests()
   → tests/test_signup.py::test_create_account FAILED
   → classified: external_dependency (CAPTCHA detected at signup form)
   → optimization-plan.md hint: "use inspect_visual_challenge to attempt Tier 3 resolution"
@@ -420,7 +420,7 @@ mk-qa-master.run_tests()
 **Step 3 — Inspect:**
 
 ```
-mk-qa-master.inspect_visual_challenge(page_id="active")
+gomore-qa-master.inspect_visual_challenge(page_id="active")
   → {
       challenge_id: "ed1f7-...",
       screenshot_base64: "...",
@@ -441,7 +441,7 @@ Claude (via vision): "Tiles 0, 4, and 7 contain traffic lights."
 **Step 5 — Solve:**
 
 ```
-mk-qa-master.solve_visual_challenge(
+gomore-qa-master.solve_visual_challenge(
     challenge_id="ed1f7-...",
     selected_tile_indices=[0, 4, 7],
     confirm=True,
@@ -457,7 +457,7 @@ mk-qa-master.solve_visual_challenge(
 **Step 6 — Resume:**
 
 ```
-mk-qa-master.run_failed()
+gomore-qa-master.run_failed()
   → tests/test_signup.py::test_create_account PASSED
   → downstream assertions all pass
 ```
@@ -500,4 +500,4 @@ See `docs/prd-v0.7.1-hcaptcha.md` for the full mini-PRD. Locked 2026-05-23:
 
 ---
 
-*End of PRD v0.1 for mk-qa-master v0.7. Discussion in mk-qa-master Issues once a draft is opened.*
+*End of PRD v0.1 for gomore-qa-master v0.7. Discussion in gomore-qa-master Issues once a draft is opened.*

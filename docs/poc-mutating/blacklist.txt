@@ -1,0 +1,4 @@
+^/auth/
+^/iap/
+^/notification
+deactivate

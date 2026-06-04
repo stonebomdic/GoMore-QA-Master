@@ -753,7 +753,7 @@ async def list_tools() -> list[Tool]:
                 "or nested structures — the matcher flattens them.\n\n"
                 "v0.9.2 — auto_discover mode: set `auto_discover: true` and the "
                 "verifier reads the project's pytest-json-report at "
-                "`<QA_PROJECT_ROOT>/report.json` (or `MK_QA_REPORT_PATH`, or "
+                "`<QA_PROJECT_ROOT>/report.json` (or `GOMORE_QA_REPORT_PATH`, or "
                 "the `report_path` arg) and adds its `tests` list to the "
                 "evidence stream. Best-effort — missing or malformed report "
                 "is silently skipped, NOT a hard error. The response's "
@@ -815,7 +815,7 @@ async def list_tools() -> list[Tool]:
                         "description": (
                             "v0.9.2 — Override the report.json location when "
                             "auto_discover is true. Defaults to "
-                            "`MK_QA_REPORT_PATH` env, then "
+                            "`GOMORE_QA_REPORT_PATH` env, then "
                             "`<QA_PROJECT_ROOT>/report.json`, then "
                             "`./report.json`."
                         ),

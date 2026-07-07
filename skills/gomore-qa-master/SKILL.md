@@ -100,6 +100,44 @@ you feel the task succeeded, verify_plan returns `incomplete` when
 CPs are unsatisfied — by design. Surface the unmet list to the user
 honestly.
 
+**v0.9.6 — verified vs attested CPs (prefer verified).** A CP with an
+`assert` block is **verified**: verify_plan loads the authoritative
+artifact itself (report.json for `test_*`, scan-results for
+`finding_*`) and judges the typed assertion, **ignoring any evidence
+you pass for that CP** — so you cannot fake it, and a *failed* test can
+no longer satisfy a "passed" CP. A CP with only a `verification_hint`
+stays **attested** (case-insensitive substring — weak, use only for
+things no artifact can prove). Reach for `assert` whenever the outcome
+lives in a report or scan:
+
+```
+qa_plan(task="login regression", strict=true, critical_points=[
+  {"id":"CP1","description":"login test passes",
+   "assert":{"type":"test_passed","test_id":"test_login"}},
+  {"id":"CP2","description":"no BOLA on the orders endpoint",
+   "assert":{"type":"finding_absent","rule_id":"OWASP-API1-BOLA",
+             "endpoint":"/orders/{id}"}},
+])
+# ... do the work ...
+verify_plan(plan_id, auto_discover=true)   # verified CPs self-load their artifact
+```
+
+Assertion types: `test_passed{test_id, match?}`,
+`test_outcome{test_id, expected}`, `finding_present{rule_id, endpoint?}`,
+`finding_absent{rule_id, endpoint?}`. `test_id` defaults to
+exact-or-suffix match (covers parametrized variants); set
+`match:"substring"` only when you deliberately want loose matching.
+Missing artifact → the CP fails **closed** (never satisfied, including
+`finding_absent` — "no evidence" is not "no vulnerability").
+
+**`strict` gate.** Declare `strict:true` at `qa_plan` time to require
+every CP be verified-tier AND satisfied for `passed` — attested CPs
+never suffice. Use it for CI gates. `strict` can only be tightened at
+verify time, never loosened; the contract is fixed before you act. Each
+checklist entry carries a `tier` field; the response adds a
+`verification{verified, verified_satisfied, attested, attested_satisfied}`
+breakdown so you can see how much of the pass was artifact-backed.
+
 Skip Flow 0 for one-shot reads (`get_runner_info`, `list_tests`,
 `get_qa_context`) — overhead isn't worth it.
 

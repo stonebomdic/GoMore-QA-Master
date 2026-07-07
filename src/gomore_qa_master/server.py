@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, Resource
@@ -11,7 +12,16 @@ from .runners import get_runner, REGISTRY
 from .reporters import html as html_reporter
 from .config import REPORT_PATH, OPTIMIZATION_PATH
 
-app = Server("gomore-qa-master")
+# Single source of truth: report the installed package version so serverInfo
+# stays in lockstep with pyproject (which test_skill_distribution ties to the
+# plugin manifests). Previously unset → the mcp lib defaulted to its own
+# version, so serverInfo drifted from the real project version.
+try:
+    _SERVER_VERSION = _pkg_version("gomore-qa-master")
+except PackageNotFoundError:  # not installed (bare source tree) — dev fallback
+    _SERVER_VERSION = "0.0.0+dev"
+
+app = Server("gomore-qa-master", version=_SERVER_VERSION)
 
 
 @app.list_tools()

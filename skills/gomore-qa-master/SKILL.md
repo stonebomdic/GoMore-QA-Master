@@ -227,8 +227,8 @@ from any prompt whose intent matches its description.
 - `reference/workflow.md` — full operating manual for each of the 5 flows
 - `reference/tool-surface.md` — cheatsheet of all 19 MCP tools with one-
   liners + input schema gotchas
-- `reference/wire-mcp.md` — what to do when the host doesn't have mk-qa-
-  master as an MCP server yet (CLI fallback)
+- `reference/wire-mcp.md` — what to do when the host doesn't have gomore-
+  qa-master as an MCP server yet (CLI fallback)
 
 ## Why this skill exists
 

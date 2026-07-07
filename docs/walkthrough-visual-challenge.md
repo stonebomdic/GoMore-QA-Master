@@ -1,6 +1,6 @@
 # Walkthrough — AI Visual Challenge Solver
 
-mk-qa-master v0.7.0 ships the first capability in the family where the
+gomore-qa-master v0.7.0 ships the first capability in the family where the
 AI client's vision is **load-bearing, not optional**. The runner
 detects a reCAPTCHA v2 image-grid challenge and screenshots it for the
 AI client; the AI client (Claude / Cursor / Gemini / GPT-4o, all
@@ -25,7 +25,7 @@ Total MCP tool count goes 16 → 18.
 ## Prerequisites
 
 ```bash
-pip install 'mk-qa-master>=0.7.0'
+pip install 'gomore-qa-master>=0.7.0'
 playwright install chromium
 ```
 
@@ -44,9 +44,9 @@ The solver does nothing without explicit opt-in. Two env vars matter:
 ```jsonc
 {
   "mcpServers": {
-    "mk-qa-master": {
+    "gomore-qa-master": {
       "command": "uvx",
-      "args": ["mk-qa-master"],
+      "args": ["gomore-qa-master"],
       "env": {
         "QA_RUNNER": "pytest",
         "QA_PROJECT_ROOT": "/path/to/your-test-project",
@@ -174,7 +174,7 @@ example — does the actual judging.)
 Claude calls:
 
 ```python
-mk-qa-master.solve_visual_challenge(
+gomore-qa-master.solve_visual_challenge(
     challenge_id="ed1f7a9b3c4d",
     selected_tile_indices=[0, 4, 7],
     confirm=True,
@@ -253,7 +253,7 @@ table matches the hCaptcha iframe (`iframe[src*="hcaptcha.com"]`):
 Claude examines the screenshot and returns the bicycle tiles. Submit:
 
 ```python
-mk-qa-master.solve_visual_challenge(
+gomore-qa-master.solve_visual_challenge(
     challenge_id="9c2b1d7e4a83",
     selected_tile_indices=[1, 3, 8],
     confirm=True,

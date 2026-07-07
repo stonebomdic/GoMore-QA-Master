@@ -1,4 +1,4 @@
-# mk-qa-master v0.7.1 — hCaptcha Support (mini-PRD)
+# gomore-qa-master v0.7.1 — hCaptcha Support (mini-PRD)
 
 **Status:** Draft v0.1 · **Author:** Jack Kao (kao273183) · **Last updated:** 2026-05-23 · **Target ship:** v0.7.1 within 1 week of go-decision
 
@@ -197,4 +197,4 @@ Locked 2026-05-23:
 
 ---
 
-*End of mini-PRD v0.1 for mk-qa-master v0.7.1. Cross-reference: `docs/prd-v0.7-visual-challenge.md`.*
+*End of mini-PRD v0.1 for gomore-qa-master v0.7.1. Cross-reference: `docs/prd-v0.7-visual-challenge.md`.*

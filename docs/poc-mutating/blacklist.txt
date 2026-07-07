@@ -1,0 +1,8 @@
+^/auth/
+^/iap/
+^/notification
+deactivate
+push
+import
+access-token
+^/tool/adjust-subscription

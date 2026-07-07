@@ -22,3 +22,4 @@ test_app/
 # macOS/雲端同步產生的重複檔（' 2.py' / ' 3.py' …任意數字後綴，避免誤入版控）
 * [0-9].*
 * [0-9][0-9].*
+docs/poc-mutating/spec.json

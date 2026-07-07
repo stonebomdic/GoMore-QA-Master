@@ -7,7 +7,7 @@ Covers:
   - on + explicit evidence → both sources combined
   - on + missing report → best-effort, no crash, sources reflects path
   - on + malformed report → same fallback
-  - MK_QA_REPORT_PATH env override
+  - GOMORE_QA_REPORT_PATH env override (+ legacy MK_QA_REPORT_PATH fallback)
   - explicit `report_path` arg overrides env
   - QA_PROJECT_ROOT path lookup
 """
@@ -35,6 +35,7 @@ def _clear_cache():
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     """Make sure stray env vars from earlier tests don't bleed in."""
+    monkeypatch.delenv("GOMORE_QA_REPORT_PATH", raising=False)
     monkeypatch.delenv("MK_QA_REPORT_PATH", raising=False)
     monkeypatch.delenv("QA_PROJECT_ROOT", raising=False)
 
@@ -65,7 +66,7 @@ def test_auto_discover_default_off_preserves_v091_behavior(tmp_path, monkeypatch
         tmp_path / "report.json",
         [{"nodeid": "tests/test_login.py::test_valid", "outcome": "passed"}],
     )
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(report))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(report))
 
     plan_id = _plan(["test_login_valid"])
     result = verify_plan_tool({
@@ -96,7 +97,7 @@ def test_auto_discover_pulls_pytest_report_tests_list(tmp_path, monkeypatch):
              "outcome": "failed", "duration": 0.5},
         ],
     )
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(report))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(report))
 
     plan_id = _plan(["test_login_valid", "test_login_expired_password"])
     result = verify_plan_tool({
@@ -119,7 +120,7 @@ def test_auto_discover_merges_with_explicit_evidence(tmp_path, monkeypatch):
         [{"nodeid": "tests/test_login.py::test_login_valid",
           "outcome": "passed"}],
     )
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(report))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(report))
 
     plan_id = _plan(["test_login_valid", "OWASP-API1-BOLA"])
     result = verify_plan_tool({
@@ -143,7 +144,7 @@ def test_auto_discover_status_is_failed_when_report_doesnt_match_cps(
         tmp_path / "report.json",
         [{"nodeid": "tests/unrelated.py::test_other", "outcome": "passed"}],
     )
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(tmp_path / "report.json"))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(tmp_path / "report.json"))
 
     plan_id = _plan(["test_login_valid"])
     result = verify_plan_tool({"plan_id": plan_id, "auto_discover": True})
@@ -158,7 +159,7 @@ def test_auto_discover_missing_report_does_not_crash(tmp_path, monkeypatch):
     empty — no exception, no error envelope. Sources records the path
     we looked at so the user can diagnose."""
     missing = tmp_path / "no-report.json"
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(missing))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(missing))
 
     plan_id = _plan(["anything"])
     result = verify_plan_tool({"plan_id": plan_id, "auto_discover": True})
@@ -171,7 +172,7 @@ def test_auto_discover_missing_report_does_not_crash(tmp_path, monkeypatch):
 def test_auto_discover_malformed_report_does_not_crash(tmp_path, monkeypatch):
     bad = tmp_path / "report.json"
     bad.write_text("{ not valid json at all", encoding="utf-8")
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(bad))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(bad))
 
     plan_id = _plan(["anything"])
     result = verify_plan_tool({"plan_id": plan_id, "auto_discover": True})
@@ -183,7 +184,7 @@ def test_auto_discover_report_without_tests_list(tmp_path, monkeypatch):
     """Report exists but no `tests` array — surface gracefully."""
     weird = tmp_path / "report.json"
     weird.write_text(json.dumps({"summary": {}}), encoding="utf-8")
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(weird))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(weird))
 
     plan_id = _plan(["anything"])
     result = verify_plan_tool({"plan_id": plan_id, "auto_discover": True})
@@ -196,7 +197,7 @@ def test_explicit_evidence_still_works_when_autodiscover_fails(
 ):
     """If auto-discover comes back empty, the explicit evidence still
     drives the verdict — don't drop it."""
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(tmp_path / "absent.json"))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(tmp_path / "absent.json"))
 
     plan_id = _plan(["scan finding"])
     result = verify_plan_tool({
@@ -212,7 +213,7 @@ def test_explicit_evidence_still_works_when_autodiscover_fails(
 # ---- Path resolution priority --------------------------------------------
 
 def test_explicit_report_path_overrides_env(tmp_path, monkeypatch):
-    """`report_path` arg in the tool call wins over MK_QA_REPORT_PATH."""
+    """`report_path` arg in the tool call wins over GOMORE_QA_REPORT_PATH."""
     env_report = _write_report(
         tmp_path / "env.json",
         [{"nodeid": "irrelevant::test", "outcome": "passed"}],
@@ -221,7 +222,7 @@ def test_explicit_report_path_overrides_env(tmp_path, monkeypatch):
         tmp_path / "arg.json",
         [{"nodeid": "expected_match::test", "outcome": "passed"}],
     )
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(env_report))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(env_report))
 
     plan_id = _plan(["expected_match"])
     result = verify_plan_tool({
@@ -233,9 +234,24 @@ def test_explicit_report_path_overrides_env(tmp_path, monkeypatch):
     assert result["evidence_sources"]["report_path"] == str(arg_report.resolve())
 
 
-def test_mk_qa_report_path_env_honored(tmp_path, monkeypatch):
+def test_gomore_qa_report_path_env_honored(tmp_path, monkeypatch):
     report = _write_report(
         tmp_path / "custom.json",
+        [{"nodeid": "tests/test_a.py::test_alpha", "outcome": "passed"}],
+    )
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(report))
+
+    plan_id = _plan(["test_alpha"])
+    result = verify_plan_tool({"plan_id": plan_id, "auto_discover": True})
+    assert result["status"] == "passed"
+    assert Path(result["evidence_sources"]["report_path"]) == report.resolve()
+
+
+def test_legacy_mk_qa_report_path_still_honored(tmp_path, monkeypatch):
+    """Legacy MK_QA_REPORT_PATH still works as a backward-compat fallback."""
+    monkeypatch.delenv("GOMORE_QA_REPORT_PATH", raising=False)
+    report = _write_report(
+        tmp_path / "legacy.json",
         [{"nodeid": "tests/test_a.py::test_alpha", "outcome": "passed"}],
     )
     monkeypatch.setenv("MK_QA_REPORT_PATH", str(report))
@@ -247,7 +263,7 @@ def test_mk_qa_report_path_env_honored(tmp_path, monkeypatch):
 
 
 def test_qa_project_root_used_when_no_env_override(tmp_path, monkeypatch):
-    """When MK_QA_REPORT_PATH is unset, fall back to
+    """When GOMORE_QA_REPORT_PATH is unset, fall back to
     <QA_PROJECT_ROOT>/report.json."""
     project_root = tmp_path / "myproj"
     report = _write_report(
@@ -256,6 +272,7 @@ def test_qa_project_root_used_when_no_env_override(tmp_path, monkeypatch):
           "outcome": "passed"}],
     )
     monkeypatch.setenv("QA_PROJECT_ROOT", str(project_root))
+    monkeypatch.delenv("GOMORE_QA_REPORT_PATH", raising=False)
     monkeypatch.delenv("MK_QA_REPORT_PATH", raising=False)
 
     plan_id = _plan(["test_proj_root_picked"])
@@ -275,7 +292,7 @@ def test_auto_discover_with_outcome_conditional_hint(tmp_path, monkeypatch):
             {"nodeid": "tests/test_x.py::test_b", "outcome": "failed"},
         ],
     )
-    monkeypatch.setenv("MK_QA_REPORT_PATH", str(tmp_path / "report.json"))
+    monkeypatch.setenv("GOMORE_QA_REPORT_PATH", str(tmp_path / "report.json"))
 
     plan_id = qa_plan_tool({
         "task": "run",

@@ -1,0 +1,612 @@
+{
+  "runnable": [
+    {
+      "method": "POST",
+      "path": "/health-assessment/sleep-score"
+    },
+    {
+      "method": "POST",
+      "path": "/health-assessment/step-suggest"
+    },
+    {
+      "method": "POST",
+      "path": "/account/profile"
+    },
+    {
+      "method": "PUT",
+      "path": "/account/timezone-offset"
+    },
+    {
+      "method": "POST",
+      "path": "/account/bind-company"
+    },
+    {
+      "method": "POST",
+      "path": "/account/health/weight"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/chat/start"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/chat/text"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/chat/button"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/chat/interact"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/me/summary-optimized"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/me/summary"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/onboarding/card"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/nutrition/recommendation"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/nutrition/record"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/nutrition/record/edit"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/nutrition/record/image"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/nutrition/chat"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/meditation/chat"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/exercise/recommendation"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/me/weekly/summary"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/me/weekly/exercise"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/me/weekly/meditation"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/me/weekly/nutrition"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/exercise/chat"
+    },
+    {
+      "method": "POST",
+      "path": "/account/health/sleep"
+    },
+    {
+      "method": "POST",
+      "path": "/account/health/steps"
+    },
+    {
+      "method": "PUT",
+      "path": "/account/health/water-goal"
+    },
+    {
+      "method": "POST",
+      "path": "/account/health/water/records"
+    },
+    {
+      "method": "PUT",
+      "path": "/account/health/calorie-goal"
+    },
+    {
+      "method": "POST",
+      "path": "/account/health/calories/batch"
+    },
+    {
+      "method": "PATCH",
+      "path": "/activities/muscle-fat/{id}/badge/dismiss"
+    },
+    {
+      "method": "POST",
+      "path": "/activities/vbt/{id}/training-records"
+    },
+    {
+      "method": "POST",
+      "path": "/activities/vbt-physical/{id}/training-records"
+    },
+    {
+      "method": "POST",
+      "path": "/activities/vbt-physical/{activityId}/claim-courses"
+    },
+    {
+      "method": "POST",
+      "path": "/activities/vbt-physical/{activityId}/courses/{courseId}/complete"
+    },
+    {
+      "method": "POST",
+      "path": "/meditations/complete"
+    },
+    {
+      "method": "POST",
+      "path": "/exercises/complete"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/managers"
+    },
+    {
+      "method": "POST",
+      "path": "/mood-diary"
+    },
+    {
+      "method": "PATCH",
+      "path": "/mood-diary/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/nutrition/batch"
+    },
+    {
+      "method": "PUT",
+      "path": "/nutrition/batch/{batchId}"
+    },
+    {
+      "method": "PUT",
+      "path": "/nutrition/food/{foodId}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/app-version"
+    },
+    {
+      "method": "POST",
+      "path": "/calendar/activities"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/companies/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/employees"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/companies/{companyId}/employees/{employeeId}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/employees/batch"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/departments"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/companies/{companyId}/departments/{departmentId}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/users/{id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/users/{id}/superuser"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sentences"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/sentences/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sentences/batch"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/course-categories"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/course-categories/{id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/course-categories/sort-order"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/courses"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/courses/{id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/courses/sort-order"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/courses/{id}/move"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/exercises"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercises/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/exercise-programs"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercise-programs/{id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercise-programs/sort-order"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercise-programs/{id}/move"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/vbt-actions"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/vbt-actions/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/vbt-physical-actions"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/vbt-physical-actions/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/exercise-categories"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercise-categories/{id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercise-categories/sort-order"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/activities/step"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/activities/step/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/activities/vbt"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/activities/vbt/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/activities/vbt-physical"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/activities/vbt-physical/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/activities/vbt-physical/{id}/reject"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/activities/muscle-fat"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/activities/muscle-fat/{id}"
+    }
+  ],
+  "no_body_schema": [
+    {
+      "method": "PATCH",
+      "path": "/activities/{id}/dismiss-upgrade-popup"
+    },
+    {
+      "method": "POST",
+      "path": "/activities/muscle-fat/{id}/dismiss-end-notification"
+    },
+    {
+      "method": "PATCH",
+      "path": "/activities/step/{id}/dismiss-end-notification"
+    },
+    {
+      "method": "PATCH",
+      "path": "/activities/step/{id}/dismiss-announcement"
+    },
+    {
+      "method": "PATCH",
+      "path": "/activities/vbt/{id}/dismiss-end-notification"
+    },
+    {
+      "method": "PATCH",
+      "path": "/activities/vbt/{id}/dismiss-announcement"
+    },
+    {
+      "method": "POST",
+      "path": "/activities/vbt-physical/{activityId}/scores/{scoreId}/apply-retest"
+    },
+    {
+      "method": "POST",
+      "path": "/activities/vbt-physical/{activityId}/dismiss-end-notification"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/employees/{employeeId}/suspend"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/course-categories/{id}/publish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/courses/{id}/unpublish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/courses/{id}/publish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercises/{id}/publish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercises/{id}/unpublish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercise-programs/{id}/publish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercise-programs/{id}/unpublish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/vbt-actions/{id}/publish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/vbt-actions/{id}/unpublish"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/vbt-physical-actions/{id}/publish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercise-categories/{id}/publish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/exercise-categories/{id}/unpublish"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/activities/step/{id}/publish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/activities/vbt/{id}/publish"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/activities/vbt/{id}/progress"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/activities/vbt/{id}/export"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/activities/vbt-physical/{id}/submit-for-review"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/activities/muscle-fat/{id}/publish"
+    }
+  ],
+  "blacklisted": [
+    {
+      "method": "POST",
+      "path": "/auth/login/apple/callback"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/bind/apple/callback"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/refreshToken"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login/confirm"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/bind/email/send-code"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/bind/email/verify"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/bind/email/set-password"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/email/login"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/email/register/send-code"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/email/register/verify"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/email/set-password"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/email/forgot-password/send-code"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/email/forgot-password/verify"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/email/forgot-password/reset"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/missions/import"
+    },
+    {
+      "method": "POST",
+      "path": "/food/import-csv"
+    },
+    {
+      "method": "POST",
+      "path": "/nutrition/batch/quick-import"
+    },
+    {
+      "method": "POST",
+      "path": "/iap/webhooks/apple"
+    },
+    {
+      "method": "POST",
+      "path": "/iap/webhooks/google"
+    },
+    {
+      "method": "POST",
+      "path": "/iap/purchases/consume"
+    },
+    {
+      "method": "POST",
+      "path": "/iap/verify/apple"
+    },
+    {
+      "method": "POST",
+      "path": "/iap/verify/google"
+    },
+    {
+      "method": "POST",
+      "path": "/notifications/token"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/employees/import-csv"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/push"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/companies/{companyId}/push/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/push/{id}/send"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/push/{id}/schedule"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/companies/{companyId}/push/{id}/cancel"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/notifications/push"
+    },
+    {
+      "method": "PUT",
+      "path": "/admin/notifications/push/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/notifications/push/{id}/send"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/notifications/push/{id}/schedule"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/notifications/push/{id}/cancel"
+    },
+    {
+      "method": "POST",
+      "path": "/tool/user-access-token"
+    },
+    {
+      "method": "POST",
+      "path": "/tool/admin-access-token"
+    },
+    {
+      "method": "POST",
+      "path": "/tool/adjust-subscription"
+    }
+  ]
+}

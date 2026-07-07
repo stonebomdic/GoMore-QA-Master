@@ -3,7 +3,7 @@
 Covers:
   - Default policy: ON when QA_PROJECT_ROOT set, OFF otherwise
   - QA_PLAN_PERSIST env override (both directions)
-  - MK_QA_PLANS_DIR path override
+  - GOMORE_QA_PLANS_DIR path override (+ legacy MK_QA_PLANS_DIR fallback)
   - Disk write atomicity (no partial files visible)
   - Disk read after in-memory cache cleared
   - Expiry honored even when file still exists
@@ -38,6 +38,8 @@ def _isolated_env(monkeypatch, tmp_path):
     _reset_cache_for_tests()
     monkeypatch.delenv("QA_PROJECT_ROOT", raising=False)
     monkeypatch.delenv("QA_PLAN_PERSIST", raising=False)
+    monkeypatch.delenv("GOMORE_QA_PLANS_DIR", raising=False)
+    monkeypatch.delenv("GOMORE_QA_REPORT_PATH", raising=False)
     monkeypatch.delenv("MK_QA_PLANS_DIR", raising=False)
     monkeypatch.delenv("MK_QA_REPORT_PATH", raising=False)
     yield
@@ -69,7 +71,7 @@ def test_persistence_on_by_default_when_project_root_set(monkeypatch, tmp_path):
 
 def test_qa_plan_persist_env_forces_on(monkeypatch, tmp_path):
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path / "plans"))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path / "plans"))
     result = qa_plan_tool({"task": "x", "critical_points": ["y"]})
     assert result["persisted_to"] is not None
     assert Path(result["persisted_to"]).is_file()
@@ -99,9 +101,18 @@ def test_persist_falsy_values_override_project_root(monkeypatch, tmp_path, falsy
 
 # ---- path resolution ---------------------------------------------------
 
-def test_plans_dir_uses_mk_qa_plans_dir_override(monkeypatch, tmp_path):
-    """MK_QA_PLANS_DIR wins over everything."""
+def test_plans_dir_uses_gomore_qa_plans_dir_override(monkeypatch, tmp_path):
+    """GOMORE_QA_PLANS_DIR wins over everything."""
     custom = tmp_path / "my-custom-plans"
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(custom))
+    monkeypatch.setenv("QA_PROJECT_ROOT", str(tmp_path / "other"))
+    assert _plans_dir() == custom.resolve()
+
+
+def test_plans_dir_honors_legacy_mk_qa_plans_dir(monkeypatch, tmp_path):
+    """Legacy MK_QA_PLANS_DIR still works as a backward-compat fallback."""
+    monkeypatch.delenv("GOMORE_QA_PLANS_DIR", raising=False)
+    custom = tmp_path / "legacy-plans"
     monkeypatch.setenv("MK_QA_PLANS_DIR", str(custom))
     monkeypatch.setenv("QA_PROJECT_ROOT", str(tmp_path / "other"))
     assert _plans_dir() == custom.resolve()
@@ -124,7 +135,7 @@ def test_plans_dir_falls_back_to_cwd(monkeypatch, tmp_path):
 
 def test_persist_writes_plan_json_with_schema_marker(monkeypatch, tmp_path):
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     result = qa_plan_tool({
         "task": "Custom task",
         "critical_points": [{"id": "CP-A", "description": "first thing"},
@@ -143,7 +154,7 @@ def test_persist_writes_plan_json_with_schema_marker(monkeypatch, tmp_path):
 
 def test_persist_filename_matches_plan_id(monkeypatch, tmp_path):
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     result = qa_plan_tool({"task": "x", "critical_points": ["y"]})
     expected_path = tmp_path / f"{result['plan_id']}.json"
     assert Path(result["persisted_to"]).resolve() == expected_path.resolve()
@@ -153,7 +164,7 @@ def test_persist_atomic_no_temp_files_visible_after_write(monkeypatch, tmp_path)
     """After write completes, only the .json file should be in plans_dir.
     No `.tmp` sibling — atomic-replace guarantees clean state."""
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     qa_plan_tool({"task": "x", "critical_points": ["y"]})
     files = sorted(p.name for p in tmp_path.iterdir())
     assert all(f.endswith(".json") for f in files), \
@@ -165,7 +176,7 @@ def test_persist_atomic_no_temp_files_visible_after_write(monkeypatch, tmp_path)
 def test_verify_after_cache_clear_loads_from_disk(monkeypatch, tmp_path):
     """The persisted plan survives an in-memory cache reset."""
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     plan_id = _plan(["thing happens"])
     _reset_cache_for_tests()  # simulate process restart
     result = verify_plan_tool({
@@ -178,7 +189,7 @@ def test_verify_after_cache_clear_loads_from_disk(monkeypatch, tmp_path):
 
 def test_verify_in_memory_marks_source_as_memory(monkeypatch, tmp_path):
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     plan_id = _plan()
     result = verify_plan_tool({"plan_id": plan_id, "evidence": []})
     assert result["plan_source"] == "memory"
@@ -187,7 +198,7 @@ def test_verify_in_memory_marks_source_as_memory(monkeypatch, tmp_path):
 def test_disk_load_repopulates_memory_cache(monkeypatch, tmp_path):
     """After a disk-load, subsequent calls should hit memory (not disk)."""
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     plan_id = _plan()
     _reset_cache_for_tests()
 
@@ -206,7 +217,7 @@ def test_disk_read_honors_expiry(monkeypatch, tmp_path):
     Pin _now to far in the future after creating the plan.
     """
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     plan_id = _plan()
     _reset_cache_for_tests()
 
@@ -226,7 +237,7 @@ def test_disk_read_honors_expiry(monkeypatch, tmp_path):
 
 def test_corrupt_json_on_disk_treated_as_not_found(monkeypatch, tmp_path):
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     # Write a malformed file under a fake plan_id
     fake_id = "deadbeef0000"
     (tmp_path / f"{fake_id}.json").write_text("{ not json", encoding="utf-8")
@@ -236,7 +247,7 @@ def test_corrupt_json_on_disk_treated_as_not_found(monkeypatch, tmp_path):
 
 def test_missing_file_treated_as_not_found(monkeypatch, tmp_path):
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     result = verify_plan_tool({"plan_id": "nonexistent1", "evidence": []})
     assert result["error"] == "plan_not_found"
 
@@ -244,7 +255,7 @@ def test_missing_file_treated_as_not_found(monkeypatch, tmp_path):
 def test_wrong_shape_json_treated_as_not_found(monkeypatch, tmp_path):
     """JSON parses but doesn't have the expected fields → plan_not_found."""
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     fake_id = "deadbeef0001"
     (tmp_path / f"{fake_id}.json").write_text(
         json.dumps({"unrelated": "data"}), encoding="utf-8"
@@ -273,7 +284,7 @@ def test_persist_failure_does_not_raise(monkeypatch, tmp_path):
 
 def test_roundtrip_preserves_critical_point_fields(monkeypatch, tmp_path):
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     plan_id = qa_plan_tool({
         "task": "Round-trip check",
         "critical_points": [{
@@ -300,7 +311,7 @@ def test_roundtrip_preserves_critical_point_fields(monkeypatch, tmp_path):
 
 def test_roundtrip_preserves_task_and_kind(monkeypatch, tmp_path):
     monkeypatch.setenv("QA_PLAN_PERSIST", "true")
-    monkeypatch.setenv("MK_QA_PLANS_DIR", str(tmp_path))
+    monkeypatch.setenv("GOMORE_QA_PLANS_DIR", str(tmp_path))
     plan_id = qa_plan_tool({
         "task": "Original task description verbatim",
         "kind": "captcha",

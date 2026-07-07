@@ -1,4 +1,4 @@
-# mk-qa-master v0.8.0 — API Security Testing (mini-PRD)
+# gomore-qa-master v0.8.0 — API Security Testing (mini-PRD)
 
 **Status:** Draft v0.1 — scope locked, rules-detail subject to revision · **Author:** Jack Kao (kao273183) · **Last updated:** 2026-05-26 · **Target ship:** v0.8.0 within ~7 days of go-decision
 
@@ -45,8 +45,8 @@ If you want **any** of these, file separately. Don't sneak them into v0.8.0 PRs.
 ## §4 — Architecture
 
 ```
-src/mk_qa_master/runners/api_security.py     ← new runner, sibling to schemathesis.py / newman.py
-src/mk_qa_master/security_rules/
+src/gomore_qa_master/runners/api_security.py     ← new runner, sibling to schemathesis.py / newman.py
+src/gomore_qa_master/security_rules/
   ├── __init__.py
   ├── base.py            # SecurityRule Protocol + Severity enum + Finding dataclass
   ├── bola.py            # API1 + API5 (function-level auth shares the diff machinery)
@@ -103,7 +103,7 @@ Return shape (subject to revision in PR-2):
 
 | Tier | Target | Lives in | Runs when |
 |---|---|---|---|
-| 1 | `examples/sample_vulnerable_api/` — a **deliberately vulnerable** Flask app shipping with mk-qa-master. Each enabled OWASP category has at least one positive trigger (a known-vulnerable endpoint) AND one negative trigger (a known-safe endpoint that the rule must NOT flag). | bundled in repo | Every PR, every unit-test run |
+| 1 | `examples/sample_vulnerable_api/` — a **deliberately vulnerable** Flask app shipping with gomore-qa-master. Each enabled OWASP category has at least one positive trigger (a known-vulnerable endpoint) AND one negative trigger (a known-safe endpoint that the rule must NOT flag). | bundled in repo | Every PR, every unit-test run |
 | 2 | A public sandbox like `https://restful-booker.herokuapp.com` (already used by Postman community for API training) | not bundled — CI-only | Nightly CI |
 | 3 | User's own OpenAPI spec + auth, opt-in via MCP tool call | runtime | When user invokes the tool |
 

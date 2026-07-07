@@ -180,7 +180,7 @@ def _reset_cache_for_tests() -> None:
     """Test hook. Don't call from production code.
 
     Only clears the in-memory cache. Tests that exercise persistence
-    should use tmp_path + monkeypatched MK_QA_PLANS_DIR so the disk
+    should use tmp_path + monkeypatched GOMORE_QA_PLANS_DIR so the disk
     state is per-test isolated automatically.
     """
     with _CACHE_LOCK:
@@ -285,7 +285,7 @@ def _stringify_evidence_item(item: Any) -> str:
 #
 # Path resolution
 # ---------------
-#   1. MK_QA_PLANS_DIR env override
+#   1. GOMORE_QA_PLANS_DIR env override (legacy MK_QA_PLANS_DIR also honored)
 #   2. <QA_PROJECT_ROOT>/test-results/plans/
 #   3. ./test-results/plans/ (CWD fallback for opt-in-without-root)
 
@@ -307,9 +307,13 @@ def _persistence_enabled() -> bool:
 def _plans_dir() -> Path:
     """Locate the dir for persisted plan files.
 
-    Order: MK_QA_PLANS_DIR → <QA_PROJECT_ROOT>/test-results/plans → ./test-results/plans
+    Order: GOMORE_QA_PLANS_DIR → <QA_PROJECT_ROOT>/test-results/plans → ./test-results/plans
+    (legacy MK_QA_PLANS_DIR still honored as a fallback)
     """
-    override = os.environ.get("MK_QA_PLANS_DIR", "").strip()
+    override = (
+        os.environ.get("GOMORE_QA_PLANS_DIR", "").strip()
+        or os.environ.get("MK_QA_PLANS_DIR", "").strip()
+    )
     if override:
         return Path(override).expanduser().resolve()
     project_root = os.environ.get("QA_PROJECT_ROOT", "").strip()
@@ -433,7 +437,8 @@ def _default_report_path() -> Path:
     """Locate the project's pytest-json-report file.
 
     Order:
-      1. `MK_QA_REPORT_PATH` env override (absolute path)
+      1. `GOMORE_QA_REPORT_PATH` env override (absolute path; legacy
+         `MK_QA_REPORT_PATH` still honored as a fallback)
       2. `<QA_PROJECT_ROOT>/report.json` (gomore-qa-master default — see
          `gomore_qa_master.config.REPORT_PATH`)
       3. `./report.json` (CWD fallback for ad-hoc invocations)
@@ -441,7 +446,10 @@ def _default_report_path() -> Path:
     We resolve at call time, not import time, so tests can monkeypatch
     the env without re-importing.
     """
-    override = os.environ.get("MK_QA_REPORT_PATH", "").strip()
+    override = (
+        os.environ.get("GOMORE_QA_REPORT_PATH", "").strip()
+        or os.environ.get("MK_QA_REPORT_PATH", "").strip()
+    )
     if override:
         return Path(override).expanduser().resolve()
     project_root = os.environ.get("QA_PROJECT_ROOT", "").strip()
@@ -587,7 +595,7 @@ def verify_plan_tool(arguments: dict[str, Any]) -> dict[str, Any]:
       report_path: str — optional. Override the default report.json
         location. Useful for non-pytest runners or custom layouts.
         Resolved order when omitted:
-          1. `MK_QA_REPORT_PATH` env override
+          1. `GOMORE_QA_REPORT_PATH` env override (legacy `MK_QA_REPORT_PATH` too)
           2. `<QA_PROJECT_ROOT>/report.json`
           3. `./report.json`
 

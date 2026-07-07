@@ -1,4 +1,4 @@
-# mk-qa-master v0.6 — Native API Testing
+# gomore-qa-master v0.6 — Native API Testing
 
 **Status:** Draft v0.1 · **Author:** Jack Kao (kao273183) · **Last updated:** 2026-05-17 · **Target ship:** v0.6.0 (Phase 1) within 2 weeks
 
@@ -8,11 +8,11 @@
 
 > **A QA reader scans the README and finds API testing as a first-class capability — not a footnote, not a "you can write it in pytest if you want", not a v0.6 roadmap promise. A real runner, a real demo, a real ship.**
 
-Today mk-qa-master drives web (pytest / Jest / Cypress / Go) and mobile (Maestro) test suites natively. API testing is **implicit-only** — your existing pytest-with-`httpx` or Jest-with-`supertest` tests run, but there's no dedicated API runner, no OpenAPI introspection, no contract-test surface. That gap is what the family-site copy is currently hedging around.
+Today gomore-qa-master drives web (pytest / Jest / Cypress / Go) and mobile (Maestro) test suites natively. API testing is **implicit-only** — your existing pytest-with-`httpx` or Jest-with-`supertest` tests run, but there's no dedicated API runner, no OpenAPI introspection, no contract-test surface. That gap is what the family-site copy is currently hedging around.
 
 v0.6 ships **native API testing** as the third capability of the family's execution layer. Three runners across two phases:
 
-1. **`schemathesis`** (v0.6.0) — OpenAPI-driven test generation. Hand it a schema URL, get auto-generated API tests, run them, return structured results into mk-qa-master's standard history / flake / coach pipeline.
+1. **`schemathesis`** (v0.6.0) — OpenAPI-driven test generation. Hand it a schema URL, get auto-generated API tests, run them, return structured results into gomore-qa-master's standard history / flake / coach pipeline.
 2. **`newman`** (v0.6.1) — Postman collection runner. Drop-in for the 100M+ Postman user base.
 3. **`pact_provider`** (v0.7.0, conditional) — Pact provider verification. Reserved for if Phase 1+2 produce traction signal.
 
@@ -26,8 +26,8 @@ The current state has a credibility gap:
 
 | Position | Truth |
 |---|---|
-| **"mk-qa-master tests web + mobile + API"** (current copy) | API is **inferred** — there's no dedicated API runner |
-| **"Just write pytest with `httpx`"** (current advice) | True but underwhelming — every Python QA team already does this; nothing about mk-qa-master uniquely enables it |
+| **"gomore-qa-master tests web + mobile + API"** (current copy) | API is **inferred** — there's no dedicated API runner |
+| **"Just write pytest with `httpx`"** (current advice) | True but underwhelming — every Python QA team already does this; nothing about gomore-qa-master uniquely enables it |
 | **"Schema-driven API testing"** (what QA teams actually want) | Not currently provided. **No competitor MCP provides it either** |
 
 QA engineers reading the README come away with one of two impressions:
@@ -105,7 +105,7 @@ Five differentiators no competitor combines for API testing:
 > **Decision boundary:** v0.6.0 ships **schemathesis only**. Newman and Pact wait for v0.6.1 / v0.7.0 to keep the first ship's surface tight and the demo story clean.
 
 **In scope (v0.6.0):**
-- New runner: `src/mk_qa_master/runners/schemathesis.py`
+- New runner: `src/gomore_qa_master/runners/schemathesis.py`
 - New env vars: `QA_OPENAPI_URL` (required for `QA_RUNNER=schemathesis`)
 - Config additions: schemathesis CLI invocation, checks selection, output parsing
 - Optional dep in `pyproject.toml`: `[project.optional-dependencies] api = ["schemathesis>=3.0"]`
@@ -132,8 +132,8 @@ Five differentiators no competitor combines for API testing:
 ## 7. System Architecture
 
 ```
-mk-qa-master/
-├── src/mk_qa_master/
+gomore-qa-master/
+├── src/gomore_qa_master/
 │   ├── runners/
 │   │   ├── __init__.py        # REGISTRY, get_runner(), @register
 │   │   ├── pytest.py          # existing (web — Playwright)
@@ -173,7 +173,7 @@ mk-qa-master/
 |---|---|
 | `get_runner_info` | Returns `current: "schemathesis"`, `available: [...schemathesis...]` |
 | `list_tests` | Returns endpoint coverage: `POST /pet`, `GET /pet/{id}`, etc. — one "test" per endpoint × check type |
-| `run_tests` | Invokes `schemathesis run --checks <X> <openapi_url>`. Parses JSON output into mk-qa-master report shape |
+| `run_tests` | Invokes `schemathesis run --checks <X> <openapi_url>`. Parses JSON output into gomore-qa-master report shape |
 | `run_failed` | Reruns only the failed endpoint × check combinations from last run |
 | `get_test_report` | Same shape as existing; per-endpoint pass/fail with request/response captured as artifact |
 | `get_failure_details` | Returns the failing request + response + Schemathesis violation reason |
@@ -247,7 +247,7 @@ class SchemathesisRunner:
     def run_tests(self, filter: str | None = None, **kwargs) -> dict:
         """
         Invoke `schemathesis run --checks all --hypothesis-database=none <url>`.
-        Parse JSON output → mk-qa-master standard report shape.
+        Parse JSON output → gomore-qa-master standard report shape.
         Capture per-endpoint request/response into artifacts.
         Write JUnit XML compatible with reporter.
         """
@@ -278,11 +278,11 @@ Customization via env:
 
 ### Output normalization
 
-Schemathesis emits its own JSON report shape. We map to mk-qa-master's `report.json` (already used by pytest / Jest / etc. via `pytest-json-report`).
+Schemathesis emits its own JSON report shape. We map to gomore-qa-master's `report.json` (already used by pytest / Jest / etc. via `pytest-json-report`).
 
 Mapping table:
 
-| Schemathesis field | mk-qa-master field |
+| Schemathesis field | gomore-qa-master field |
 |---|---|
 | `checks[].method + path` | `nodeid` (formatted as `"POST /pet :: response_conformance"`) |
 | `checks[].status` ("success" / "failure" / "error") | `outcome` ("passed" / "failed" / "error") |
@@ -301,15 +301,15 @@ New canonical chain enabled by v0.6.0:
 
 ```
 1.  user: "Test the API at https://api.example.com/openapi.json"
-2.  mk-qa-master.get_runner_info()                  → current: schemathesis
-3.  mk-qa-master.run_tests()                        → 24 endpoints × 5 checks = 120 cases
+2.  gomore-qa-master.get_runner_info()                  → current: schemathesis
+3.  gomore-qa-master.run_tests()                        → 24 endpoints × 5 checks = 120 cases
                                                        8 failed (3 endpoints have schema violations)
-4.  mk-qa-master.get_optimization_plan()            → broken: POST /pet (3 consec fails, same sig)
+4.  gomore-qa-master.get_optimization_plan()            → broken: POST /pet (3 consec fails, same sig)
                                                        flaky: GET /pet/{id} (PFPFP pattern)
-5.  mk-qa-master.get_failure_details("POST /pet :: response_conformance")
+5.  gomore-qa-master.get_failure_details("POST /pet :: response_conformance")
                                                     → request body, response body, violation
 6.  user fixes the API in their IDE
-7.  mk-qa-master.run_failed()                       → now 0 failures
+7.  gomore-qa-master.run_failed()                       → now 0 failures
 8.  mk-spec-master.link_test_to_spec(...)           → tie API tests back to acceptance criteria
 ```
 
@@ -319,7 +319,7 @@ For the full pipeline (Idea → API tests):
 mk-plan-master.generate_spec_draft         → Markdown spec
 mk-spec-master.parse_spec → extract_scenarios → API endpoint behaviors
 [user writes the API + OpenAPI spec in their IDE]
-mk-qa-master (QA_RUNNER=schemathesis) → run_tests → coverage
+gomore-qa-master (QA_RUNNER=schemathesis) → run_tests → coverage
 ```
 
 **This is the first chain where the family's "code in your IDE" boundary is on the *API* side, not the UI side.** Marketing angle: "Plan → Spec → API → Test, decomposed."
@@ -358,7 +358,7 @@ Schemathesis tests inherit the entire existing optimizer pipeline. No changes ne
 | **Storage** | Per-run report size grows ~2-5KB per endpoint × checks. For a 50-endpoint API at full check coverage, ~500KB per run. History rotation at 100 runs keeps it under 50MB. |
 | **Auth** | Tokens / API keys ride in env vars or `QA_SCHEMATHESIS_AUTH`. Never logged. |
 | **Errors** | Adapter raises structured `{error, retryable, hint}` (mirror existing runners). |
-| **Compatibility** | Python 3.10+, schemathesis>=3.0, MCP SDK >=1.0.0. Optional dep — installs only when user does `pip install 'mk-qa-master[api]'`. |
+| **Compatibility** | Python 3.10+, schemathesis>=3.0, MCP SDK >=1.0.0. Optional dep — installs only when user does `pip install 'gomore-qa-master[api]'`. |
 
 ---
 
@@ -389,7 +389,7 @@ Schemathesis tests inherit the entire existing optimizer pipeline. No changes ne
 | R1 | Schemathesis CLI changes incompatibly between major versions | Pin `schemathesis>=3.0,<4` in optional dep; tracking issue for v4 upgrade |
 | R2 | Users without OpenAPI schema can't use this runner | Plan-master can help generate OpenAPI from natural-language spec (future). Out of scope for v0.6 |
 | R3 | Adoption could be lower than UI testing because mid-stage QA teams haven't standardized on OpenAPI | The Newman runner (v0.6.1) covers the Postman segment, which is much larger |
-| R4 | The "we test web + mobile + API" copy bumps mk-qa-master into more competitive comparison (vs. specialist API testing vendors) | Stay honest about scope — we're a runner orchestrator, not a Postman replacement |
+| R4 | The "we test web + mobile + API" copy bumps gomore-qa-master into more competitive comparison (vs. specialist API testing vendors) | Stay honest about scope — we're a runner orchestrator, not a Postman replacement |
 
 ---
 
@@ -399,7 +399,7 @@ Schemathesis tests inherit the entire existing optimizer pipeline. No changes ne
 - 50+ uses of `QA_RUNNER=schemathesis` per week (tracked via telemetry, anonymously)
 - 5 unsolicited Issues / PRs mentioning API testing
 - 1 external blog post / tweet mentioning the feature
-- mk-qa-master starts being listed on "MCP for API testing" comparison posts
+- gomore-qa-master starts being listed on "MCP for API testing" comparison posts
 
 **Quality (any time):**
 - 100% backwards-compatible — existing pytest / Jest / Cypress / Go / Maestro users see no regression
@@ -415,13 +415,13 @@ Schemathesis tests inherit the entire existing optimizer pipeline. No changes ne
 
 ## 17. Open Source Strategy
 
-- License: MIT (mirror existing mk-qa-master)
+- License: MIT (mirror existing gomore-qa-master)
 - Repo: same repo, branch `feat/api-testing-v0.6` → PR → squash merge to `main`
 - CI from day 1 (extend existing `ci.yml` with a `schemathesis` job)
-- Optional dep group (`pip install 'mk-qa-master[api]'`) so the base install stays small
+- Optional dep group (`pip install 'gomore-qa-master[api]'`) so the base install stays small
 - Sample API spec bundled at `examples/sample_api_project/openapi.yaml` (no external dependency)
 - Blog post on launch: extend the planned Dev.to article with an "and API too" section, or run a follow-up post specifically on API testing
-- Show HN on v0.6.0 ship day: "Show HN: mk-qa-master v0.6 — Schemathesis runner so Claude can drive OpenAPI-driven API tests"
+- Show HN on v0.6.0 ship day: "Show HN: gomore-qa-master v0.6 — Schemathesis runner so Claude can drive OpenAPI-driven API tests"
 
 ---
 
@@ -448,13 +448,13 @@ A solo dev shipping a SaaS with a public REST API.
 **Step 2 — AI orchestrates:**
 
 ```
-mk-qa-master.get_runner_info()
+gomore-qa-master.get_runner_info()
   → current: schemathesis, available: [pytest, jest, cypress, go, maestro, schemathesis]
 
-mk-qa-master.list_tests()
+gomore-qa-master.list_tests()
   → 24 endpoints, 5 checks each = 120 test cases
 
-mk-qa-master.run_tests()
+gomore-qa-master.run_tests()
   → 112 passed, 6 failed, 2 errored
   → execution time: 47s
   → failures:
@@ -462,7 +462,7 @@ mk-qa-master.run_tests()
       DELETE /users/{id} :: status_code_conformance (1 case)
       GET /search :: not_a_server_error (2 cases — actual 500s under fuzzing)
 
-mk-qa-master.get_optimization_plan()
+gomore-qa-master.get_optimization_plan()
   → 🔴 broken  · POST /users :: response_schema_conformance
     Same Schemathesis signature × 3 → "Returned status 500 expected 201|400"
     Action: response schema doesn't allow 500; either fix the validation
@@ -479,7 +479,7 @@ mk-qa-master.get_optimization_plan()
 
 user: "Walk me through the POST /users failure."
 
-mk-qa-master.get_failure_details("POST /users :: response_schema_conformance")
+gomore-qa-master.get_failure_details("POST /users :: response_schema_conformance")
   → request:
       POST /users
       Content-Type: application/json
@@ -494,7 +494,7 @@ user: "Fix the validation in src/users/create.ts."
 
 [user fixes in their IDE]
 
-mk-qa-master.run_failed()
+gomore-qa-master.run_failed()
   → 8/8 previously-failed cases now passing
   → 0 regressions
 ```
@@ -515,7 +515,7 @@ mk-qa-master.run_failed()
 
 1. **Confirm scope of v0.6.0** — schemathesis only? Or bundle Newman in the same release?
 2. **`QA_OPENAPI_URL` shape** — accept `http(s)://`, `file://`, and plain filesystem path? Pick 1-2 patterns.
-3. **Optional dep vs hard dep** — should `schemathesis` install with `pip install mk-qa-master` (hard) or only `pip install 'mk-qa-master[api]'` (optional)? Recommendation: optional, keeps base install slim.
+3. **Optional dep vs hard dep** — should `schemathesis` install with `pip install gomore-qa-master` (hard) or only `pip install 'gomore-qa-master[api]'` (optional)? Recommendation: optional, keeps base install slim.
 4. **Sample API project** — bundle a 3-endpoint fictional OpenAPI? Use the public Petstore swagger? Build both with a flag?
 5. **Public PRD timing** — publish this doc on the repo Day 1 (matches mk-plan-master pattern) or hold until v0.6.0 ships?
 
@@ -527,7 +527,7 @@ Locked 2026-05-17 after PRD review:
 
 1. **v0.6.0 scope** — `schemathesis` runner ONLY. Newman moves to v0.6.1 to keep the first ship's demo story clean.
 2. **`QA_OPENAPI_URL` shape** — accept `http(s)://` and `file://` only. Plain filesystem paths require `file://` prefix to avoid ambiguity with relative-vs-absolute resolution.
-3. **Dependency model** — `schemathesis` is an **optional dep**. Users install via `pip install 'mk-qa-master[api]'`. Base install stays slim; the runner module imports schemathesis lazily and raises a clear `ImportError` with the install hint if missing.
+3. **Dependency model** — `schemathesis` is an **optional dep**. Users install via `pip install 'gomore-qa-master[api]'`. Base install stays slim; the runner module imports schemathesis lazily and raises a clear `ImportError` with the install hint if missing.
 4. **Sample API project** — bundle a **3-endpoint fictional OpenAPI** at `examples/sample_api_project/openapi.yaml`. Self-contained, no external service, CI-friendly.
 5. **PRD public timing** — Day 1 (this commit). Mirrors mk-plan-master's build-in-public pattern; no reason to hide.
 
@@ -558,7 +558,7 @@ Locked 2026-05-16 alongside the Phase 2 (Newman) build:
    parses JUnit XML because Schemathesis 3.x has no JSON-report flag —
    Newman's JSON output is richer than its JUnit, so we use the richer
    source.) Per-execution × per-assertion mapping yields one
-   mk-qa-master nodeid per `pm.test(...)` call.
+   gomore-qa-master nodeid per `pm.test(...)` call.
 5. **File-path requirement** — `QA_POSTMAN_COLLECTION` accepts a plain
    filesystem path only. **No `file://` scheme** — Newman doesn't need
    scheme disambiguation since collections are always local artifacts.
@@ -609,4 +609,4 @@ Locked 2026-05-18:
 
 ---
 
-*End of PRD v0.1 for mk-qa-master v0.6. Discussion in mk-qa-master Issues once a draft is opened.*
+*End of PRD v0.1 for gomore-qa-master v0.6. Discussion in gomore-qa-master Issues once a draft is opened.*

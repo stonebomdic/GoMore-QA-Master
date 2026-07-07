@@ -1,6 +1,6 @@
 # Walkthrough — Native API testing
 
-mk-qa-master ships two native API runners as of v0.6.1:
+gomore-qa-master ships two native API runners as of v0.6.1:
 
 - **Track 1 — Schemathesis** (since v0.6.0): point at an OpenAPI 3.x
   schema and get property-based fuzz coverage of every operation.
@@ -20,7 +20,7 @@ This document covers Track 1 first (Schemathesis), then Track 2 (Newman).
 ## Track 1 — Schemathesis (OpenAPI-driven)
 
 This walkthrough shows the end-to-end loop for testing an OpenAPI-defined
-API with mk-qa-master v0.6.0 using the bundled 3-endpoint sample. By the
+API with gomore-qa-master v0.6.0 using the bundled 3-endpoint sample. By the
 end you'll have run property-based fuzz tests, read a failure with the
 exact request + response captured, fixed the bug, and seen `run_failed`
 return zero failures — all from a single AI client session.
@@ -36,7 +36,7 @@ the AI Visual Challenge Solver — see
 ## Prerequisites
 
 ```bash
-pip install 'mk-qa-master[api]'
+pip install 'gomore-qa-master[api]'
 ```
 
 The `[api]` extra pulls in `schemathesis>=3.0,<4`. The base install
@@ -69,9 +69,9 @@ Cursor / Codex / Gemini CLI):
 ```jsonc
 {
   "mcpServers": {
-    "mk-qa-master": {
+    "gomore-qa-master": {
       "command": "uvx",
-      "args": ["mk-qa-master"],
+      "args": ["gomore-qa-master"],
       "env": {
         "QA_RUNNER": "schemathesis",
         "QA_OPENAPI_URL": "file:///absolute/path/to/examples/sample_api_project/openapi.yaml",
@@ -101,7 +101,7 @@ client; in practice the user just types natural language.
 
 ### 1. `get_runner_info` — confirm the runner is wired
 
-> **You**: Which runner is mk-qa-master using right now?
+> **You**: Which runner is gomore-qa-master using right now?
 
 ```json
 {
@@ -273,7 +273,7 @@ runner fuzzes against it.
 mk-plan-master.generate_spec_draft   → Markdown spec
 mk-spec-master.parse_spec            → extracted scenarios + acceptance criteria
 [user writes the API + OpenAPI schema in their IDE]
-mk-qa-master (QA_RUNNER=schemathesis) → run_tests → coverage
+gomore-qa-master (QA_RUNNER=schemathesis) → run_tests → coverage
 ```
 
 This is the first chain where the family's "code in your IDE" boundary
@@ -324,7 +324,7 @@ Newman ships via **npm**, not pip:
 npm install -g newman
 ```
 
-There's no `mk-qa-master[postman]` extra to install. The runner shells
+There's no `gomore-qa-master[postman]` extra to install. The runner shells
 out to the `newman` binary on PATH; if it's missing, you'll get a clear
 `ImportError` pointing at the install line.
 
@@ -349,9 +349,9 @@ at any real backend, without editing the file.
 ```jsonc
 {
   "mcpServers": {
-    "mk-qa-master": {
+    "gomore-qa-master": {
       "command": "uvx",
-      "args": ["mk-qa-master"],
+      "args": ["gomore-qa-master"],
       "env": {
         "QA_RUNNER": "newman",
         "QA_POSTMAN_COLLECTION": "/absolute/path/to/examples/sample_api_project/postman-collection.json"
@@ -399,8 +399,8 @@ GET {{baseUrl}}/books/{{bookId}} :: Books :: Get book by id
 **3. `run_tests`**
 
 Newman replays each request and runs the embedded `pm.test(...)` calls.
-The JSON report Newman emits gets translated into mk-qa-master's
-`report.json` shape: **one mk-qa-master "test" per pm.test assertion**.
+The JSON report Newman emits gets translated into gomore-qa-master's
+`report.json` shape: **one gomore-qa-master "test" per pm.test assertion**.
 Three requests × 2 assertions each = 6 nodeids.
 
 Against a Prism mock that conforms to the schema, all 6 pass. Against a

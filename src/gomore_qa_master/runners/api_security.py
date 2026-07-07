@@ -45,6 +45,7 @@ from typing import Any
 
 import yaml
 
+from ..config import default_scan_path
 from ..security_rules import (
     ALL_RULES,
     APIClient,
@@ -79,6 +80,55 @@ DEFAULT_CATEGORIES: list[str] = [
 
 # Hosts that are always authorized without env-var allowlist entry.
 _IMPLICIT_AUTHORIZED_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+# ---- scan-results artifact (v0.9.6) -------------------------------------
+
+# Same redaction contract as the schemathesis / newman runners: scrub
+# bearer tokens and secret-ish JSON values before findings hit disk, since
+# verify_plan and humans both read this file. Over-redact rather than leak.
+_REDACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(Authorization:\s*Bearer\s+)\S+", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r'("password"\s*:\s*)"[^"]*"', re.IGNORECASE), r'\1"[REDACTED]"'),
+    (re.compile(r'("(?:[a-z_]*token|api[-_]?key|secret|access_token|refresh_token)"\s*:\s*)"[^"]*"',
+                re.IGNORECASE), r'\1"[REDACTED]"'),
+]
+
+
+def _redact_scan_text(text: str) -> str:
+    if os.getenv("QA_NO_REDACT", "").lower() in ("1", "true", "yes"):
+        return text
+    out = text
+    for pat, repl in _REDACT_PATTERNS:
+        out = pat.sub(repl, out)
+    return out
+
+
+def _persist_scan_results(result: dict[str, Any]):
+    """Atomically write the (redacted) scan result to the resolved scan
+    path. Best-effort: any OSError is swallowed (returns None) so a
+    read-only FS never breaks the scan. Returns the path on success.
+    """
+    try:
+        target = default_scan_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        text = _redact_scan_text(json.dumps(result, ensure_ascii=False, indent=2))
+        import tempfile
+        fd, tmp = tempfile.mkstemp(prefix="scan-results.", suffix=".tmp",
+                                   dir=str(target.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            os.replace(tmp, target)
+        except OSError:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            return None
+        return target
+    except OSError:
+        return None
 
 
 # ---- consent / authorization --------------------------------------------
@@ -391,6 +441,11 @@ def run_scan(
         "summary": _summarize(above_threshold),
         "findings_below_threshold_count": len(all_findings) - len(above_threshold),
     }
+
+    # v0.9.6 — persist the findings artifact BEFORE plan verification, so a
+    # plan carrying verified finding_* CPs can load it. Best-effort.
+    scan_path = _persist_scan_results(result)
+    result["scan_results_path"] = str(scan_path) if scan_path else None
 
     # v0.9.4 — optional plan auto-verification.
     if plan_id:

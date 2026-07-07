@@ -9,6 +9,7 @@ RUNNER_NAME = os.getenv("QA_RUNNER", "pytest").lower()
 
 REPORT_PATH = PROJECT_ROOT / "report.json"
 JUNIT_PATH = PROJECT_ROOT / "junit.xml"
+SCAN_RESULTS_PATH = PROJECT_ROOT / "scan-results.json"
 ARTIFACTS_DIR = PROJECT_ROOT / "test-results"
 HISTORY_DIR = ARTIFACTS_DIR / "history"
 TELEMETRY_DIR = ARTIFACTS_DIR / "telemetry"
@@ -108,6 +109,25 @@ try:
     POSTMAN_TIMEOUT_REQUEST_MS = int(os.getenv("QA_POSTMAN_TIMEOUT_REQUEST_MS", "30000") or "30000")
 except ValueError:
     POSTMAN_TIMEOUT_REQUEST_MS = 30000
+
+
+def default_scan_path() -> Path:
+    """Resolve the scan-results.json artifact path at call time.
+
+    Lazy (env-evaluated each call) so tests can monkeypatch cleanly, mirroring
+    qa_plan's report-path resolution. Order:
+      1. GOMORE_QA_SCAN_PATH env override
+      2. <QA_PROJECT_ROOT>/scan-results.json
+      3. ./scan-results.json (CWD fallback for ad-hoc scans)
+
+    run_scan writes here; verify_plan's finding_* assertions read from here.
+    """
+    override = os.getenv("GOMORE_QA_SCAN_PATH", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    root = os.getenv("QA_PROJECT_ROOT", "").strip()
+    base = Path(root).expanduser() if root else Path.cwd()
+    return (base / "scan-results.json").resolve()
 
 
 def connect_android_host(timeout_s: float = 10.0) -> tuple[bool, str]:

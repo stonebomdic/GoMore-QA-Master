@@ -134,6 +134,24 @@ def test_finding_present_satisfied():
     assert actual["hits"] == 1
 
 
+def test_finding_present_matches_rule_class_id_by_prefix():
+    """Callers assert on the rule-class id; findings carry a specific sub-id.
+    The class id must match its sub-ids by prefix."""
+    scan = _scan(_finding("OWASP-API1-BOLA-CrossUserDataExposure", "/orders/{id}"))
+    ok, actual = assertions.evaluate(
+        {"type": "finding_present", "rule_id": "OWASP-API1-BOLA"}, scan)
+    assert ok is True
+    assert actual["hits"] == 1
+
+
+def test_finding_absent_prefix_aware():
+    """A BOLA sub-id present means finding_absent(OWASP-API1-BOLA) is NOT satisfied."""
+    scan = _scan(_finding("OWASP-API1-BOLA-CrossUserDataExposure", "/orders/{id}"))
+    ok, _ = assertions.evaluate(
+        {"type": "finding_absent", "rule_id": "OWASP-API1-BOLA"}, scan)
+    assert ok is False
+
+
 def test_finding_present_endpoint_scoped():
     scan = _scan(_finding("OWASP-API1-BOLA", "/orders/{id}"))
     ok, _ = assertions.evaluate(

@@ -116,7 +116,7 @@ qa_plan(task="login regression", strict=true, critical_points=[
    "assert":{"type":"test_passed","test_id":"test_login"}},
   {"id":"CP2","description":"no BOLA on the orders endpoint",
    "assert":{"type":"finding_absent","rule_id":"OWASP-API1-BOLA",
-             "endpoint":"/orders/{id}"}},
+             "endpoint":"GET /vuln/orders/{order_id}"}},
 ])
 # ... do the work ...
 verify_plan(plan_id, auto_discover=true)   # verified CPs self-load their artifact
@@ -127,6 +127,13 @@ Assertion types: `test_passed{test_id, match?}`,
 `finding_absent{rule_id, endpoint?}`. `test_id` defaults to
 exact-or-suffix match (covers parametrized variants); set
 `match:"substring"` only when you deliberately want loose matching.
+For finding_* the `rule_id` matches the rule-class id by prefix (e.g.
+`OWASP-API1-BOLA` covers `OWASP-API1-BOLA-CrossUserDataExposure`), and
+`endpoint` (optional) is the finding's exact `"METHOD /path"` string
+(e.g. `GET /vuln/orders/{order_id}`); omit it to match the rule anywhere.
+finding_* reads the `scan-results.json` that `run_api_security_scan`
+writes — run the scan first (or pass `plan_id` to the scan for a one-shot
+bookend).
 Missing artifact → the CP fails **closed** (never satisfied, including
 `finding_absent` — "no evidence" is not "no vulnerability").
 

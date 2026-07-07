@@ -563,13 +563,19 @@ def _load_report_dict(report_path: Path | None) -> dict[str, Any] | None:
 
 
 def _load_scan_dict() -> dict[str, Any] | None:
-    """Load the scan-results artifact for finding_* assertions.
-
-    Stub in Phase 1 (functional-test family only). Phase 2 wires this to
-    the SCAN_RESULTS_PATH written by run_api_security_scan. Returning None
-    keeps finding_* assertions fail-closed until then.
+    """Load the scan-results artifact (written by run_api_security_scan) for
+    finding_* assertions. Resolves the path via config.default_scan_path()
+    at call time. Returns None on any read/parse failure — fail-closed.
     """
-    return None
+    from ..config import default_scan_path
+    try:
+        path = default_scan_path()
+        if not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 # ---- tool entry points -------------------------------------------------

@@ -57,7 +57,11 @@ def _check_test_outcome(assertion: dict, report: dict, expected: str) -> tuple[b
 # ---- scan (security) family -------------------------------------------
 
 def _finding_matches(f: dict, rule_id: str, endpoint: str | None) -> bool:
-    if str(f.get("rule_id")) != rule_id:
+    # Findings carry a specific sub-id (e.g. "OWASP-API1-BOLA-CrossUserData"),
+    # but callers naturally assert on the rule-class id ("OWASP-API1-BOLA").
+    # Match the class id or any of its sub-ids by prefix; exact still works.
+    fid = str(f.get("rule_id", ""))
+    if not (fid == rule_id or fid.startswith(rule_id + "-")):
         return False
     if endpoint and str(f.get("endpoint")) != endpoint:
         return False

@@ -119,8 +119,11 @@ def test_backtest_prioritized_actions(corpus):
     assert err["target"] == "analyze_url"
     assert "67%" in err["evidence"]
 
-    adoption = by_cat["ai_adoption"][0]
+    # ai_adoption 是觀察型類別（Task 7 剪枝）→ 進 appendix 而非 top-line
+    plan_appendix = plan["appendix_actions"]
+    adoption = [a for a in plan_appendix if a["category"] == "ai_adoption"][0]
     assert "0%" in adoption["evidence"]
+    assert "ai_adoption" not in by_cat
 
     gap = by_cat["coverage_gap"][0]
     assert gap["target"] == "Checkout Flow"

@@ -36,13 +36,18 @@ def build_plan(history_limit: int = 10, telemetry_limit: int = 500) -> dict:
     usability = _analyze_usability(telemetry_limit)
     strategy = _analyze_strategy(history, telemetry_limit)
     actions = _prioritize(suite, usability, strategy)
+    records = telemetry.read_recent(TOOL_USAGE_LOG, telemetry_limit)
+    conversion = _recommendation_conversion(actions, records)
+    top, appendix = _split_actions(actions, conversion)
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "history_runs": len(history),
         "suite_quality": suite,
         "mcp_usability": usability,
         "test_strategy": strategy,
-        "prioritized_actions": actions,
+        "prioritized_actions": top,
+        "appendix_actions": appendix,
+        "recommendation_conversion": conversion,
     }
 
 
@@ -372,6 +377,72 @@ def _prioritize(suite: dict, usability: dict, strategy: dict) -> list[dict]:
     return actions
 
 
+# --- Conversion measurement + pruning (P4) -----------------------------------
+
+# 觀察型類別：無 auto_action_hint 也無法對應到一個具體行動（tool 呼叫或
+# 測試修改），屬給人看的訊號 → 一律降到附錄，不佔 top-line。
+_ADVISORY_CATEGORIES = {"ai_adoption", "mcp_repeat", "mcp_chain"}
+
+# Suite 品質核心訊號：即使 agent 沒採納建議也絕不能被隱藏（壞掉/flaky
+# 的測試是事實，不是建議品質問題）。
+_SUITE_SIGNAL_CATEGORIES = {"broken", "flaky", "slow_regression"}
+
+_HINT_TOOL_RE = re.compile(r"call (\w+)\(")
+
+
+def _recommendation_conversion(actions: list[dict], records: list[dict],
+                               window: int = 20) -> dict:
+    """recommendation → action 轉換率。
+
+    telemetry 中每筆 get_optimization_plan 呼叫視為一次「建議交付」；
+    對每個帶 auto_action_hint 的 action，看任一交付點之後 window 筆內
+    是否出現 hint 指到的 tool。rate=None 表示沒有交付點、無從量測。
+    """
+    delivery_idx = [i for i, r in enumerate(records)
+                    if r.get("tool") == "get_optimization_plan"]
+    followups: set[str] = set()
+    for i in delivery_idx:
+        for r in records[i + 1: i + 1 + window]:
+            if r.get("tool"):
+                followups.add(r["tool"])
+
+    by_category: dict[str, dict] = {}
+    for a in actions:
+        m = _HINT_TOOL_RE.search(a.get("auto_action_hint") or "")
+        if not m:
+            continue
+        stats = by_category.setdefault(
+            a["category"], {"hinted": 0, "converted": 0, "rate": None})
+        stats["hinted"] += 1
+        if delivery_idx and m.group(1) in followups:
+            stats["converted"] += 1
+    for stats in by_category.values():
+        if delivery_idx:
+            stats["rate"] = round(stats["converted"] / stats["hinted"], 2)
+    return {"deliveries": len(delivery_idx), "by_category": by_category}
+
+
+def _split_actions(actions: list[dict], conversion: dict) -> tuple[list[dict], list[dict]]:
+    """top-line / appendix 分流（P4 剪枝）。
+
+    降級條件：觀察型類別（_ADVISORY_CATEGORIES），或交付 >= 3 次仍
+    轉換率 0 的類別 —— 但 suite 品質核心訊號永不降級。
+    """
+    dead_categories = {
+        cat for cat, s in conversion.get("by_category", {}).items()
+        if conversion.get("deliveries", 0) >= 3 and s.get("rate") == 0.0
+    }
+    top: list[dict] = []
+    appendix: list[dict] = []
+    for a in actions:
+        cat = a["category"]
+        demote = (cat in _ADVISORY_CATEGORIES
+                  or (cat in dead_categories
+                      and cat not in _SUITE_SIGNAL_CATEGORIES))
+        (appendix if demote else top).append(a)
+    return top, appendix
+
+
 # --- Markdown rendering ------------------------------------------------------
 
 _PRIO_ICON = {"high": "🔴", "medium": "🟡", "low": "🟢"}
@@ -400,6 +471,26 @@ def _to_markdown(plan: dict) -> str:
             if a.get("auto_action_hint"):
                 lines.append(f"- **Auto-action hint**: `{a['auto_action_hint']}`")
             lines.append("")
+
+    appendix = plan.get("appendix_actions", [])
+    if appendix:
+        lines.append("## Appendix — 觀察型 / 低轉換建議")
+        lines.append("")
+        lines.append("_不佔 top-line 的訊號：無法直接對應行動，或建議交付後未被採納。_")
+        lines.append("")
+        for a in appendix:
+            lines.append(f"- **{a['category']}** — `{a['target']}`：{a['evidence']}（{a['suggestion']}）")
+        lines.append("")
+
+    conv = plan.get("recommendation_conversion", {})
+    if conv.get("deliveries"):
+        lines.append("## Recommendation Conversion")
+        lines.append("")
+        lines.append(f"- 建議交付（get_optimization_plan 呼叫）：{conv['deliveries']} 次")
+        for cat, s in sorted(conv.get("by_category", {}).items()):
+            rate = "n/a" if s["rate"] is None else f"{int(s['rate'] * 100)}%"
+            lines.append(f"  - {cat}: {s['converted']}/{s['hinted']}（{rate}）")
+        lines.append("")
 
     suite = plan.get("suite_quality", {})
     if not suite.get("empty"):

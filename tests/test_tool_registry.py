@@ -156,3 +156,77 @@ def test_dispatch_smoke_plan_bookends(stubbed):
 def test_dispatch_unknown_tool():
     result = asyncio.run(server._dispatch("no_such_tool", {}))
     assert "未知的 tool" in result[0].text
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — registry 契約（重構後才綠）
+# ---------------------------------------------------------------------------
+
+def _registry():
+    from gomore_qa_master.tools.registry import REGISTRY
+    return REGISTRY
+
+
+def test_registry_names_match_golden():
+    """REGISTRY 的 key 集 == 重構前 golden 的 tool 名集（不多不少），
+    且插入順序與 list_tools 順序一致。"""
+    reg = _registry()
+    assert list(reg) == list(GOLDEN_REQUIRED)
+
+
+def test_registry_matches_tool_surface_doc():
+    """drift 測試：REGISTRY == skills/.../reference/tool-surface.md 表格宣告。"""
+    import re
+    doc = (Path(__file__).parents[1] / "skills" / "gomore-qa-master"
+           / "reference" / "tool-surface.md").read_text(encoding="utf-8")
+    # tool 名是小寫 snake_case；同文件的環境變數表（全大寫）不算
+    declared = set(re.findall(r"^\| `([a-z][a-z0-9_]*)` \|", doc, flags=re.MULTILINE))
+    assert declared == set(_registry()), (
+        f"tool-surface.md 與 REGISTRY 不同步：doc-only={declared - set(_registry())}, "
+        f"registry-only={set(_registry()) - declared}"
+    )
+
+
+def test_registry_blocking_flags():
+    """subprocess / 網路 / 磁碟 I/O 的 tool 必須標 blocking=True 走 offload；
+    verify_plan 因 P0 產物檔案讀取也必須 blocking（P1→P2 交接條款）。"""
+    reg = _registry()
+    must_block = {
+        "list_tests", "run_tests", "run_failed", "get_test_report",
+        "get_failure_details", "generate_test", "codegen",
+        "generate_html_report", "get_test_history", "get_optimization_plan",
+        "analyze_screen", "run_api_security_scan", "qa_plan", "verify_plan",
+        "get_qa_context", "init_qa_knowledge",
+    }
+    for name in must_block:
+        assert reg[name].blocking, f"{name} 應標 blocking=True"
+    assert not reg["get_runner_info"].blocking
+
+
+def test_registry_blocking_tool_goes_through_offload(monkeypatch):
+    """blocking=True 的 tool 經 dispatch 確實 offload（P1 時序法）：
+    慢的 run_tests 不得卡住快的 get_runner_info。"""
+    import time
+
+    def slow_run_tests(**kwargs):
+        time.sleep(0.25)
+        return {"ok": True}
+
+    monkeypatch.setattr(server.runner, "run_tests", slow_run_tests)
+    done_at: dict[str, float] = {}
+
+    async def timed(key, name, args):
+        res = await server._dispatch(name, args)
+        done_at[key] = time.monotonic()
+        return res
+
+    async def main():
+        t0 = time.monotonic()
+        await asyncio.gather(
+            timed("slow", "run_tests", {}),
+            timed("fast", "get_runner_info", {}),
+        )
+        return t0
+
+    t0 = asyncio.run(main())
+    assert done_at["fast"] - t0 < 0.25

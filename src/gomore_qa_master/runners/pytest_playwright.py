@@ -87,6 +87,7 @@ _SAMPLE_VALUES = {
 
 class PytestPlaywrightRunner(TestRunner):
     name = "pytest-playwright"
+    generation_context_fields = frozenset({"url", "module", "business_context"})
 
     def list_tests(self) -> str:
         result = safe_run(["pytest", "--collect-only", "-q"], cwd=PROJECT_ROOT)

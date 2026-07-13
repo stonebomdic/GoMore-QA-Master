@@ -6,6 +6,10 @@ class TestRunner(ABC):
 
     name: str = "base"
 
+    # generate_test 額外接受的 context kwargs（能力以屬性宣告，取代呼叫端
+    # 的簽名反射）。窄簽名 runner（jest/cypress/go）維持空集合。
+    generation_context_fields: frozenset[str] = frozenset()
+
     @abstractmethod
     def list_tests(self) -> str: ...
 

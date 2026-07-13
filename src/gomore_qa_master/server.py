@@ -242,8 +242,8 @@ async def _h_auto_generate_tests(args: dict) -> list[TextContent]:
 
 
 def _h_run_api_security_scan(args: dict) -> list[TextContent]:
-    from .runners.api_security import run_scan
-    result = run_scan(
+    from .scanners import SCANNERS
+    result = SCANNERS["api_security"].scan(
         args.get("spec_url", ""),
         auth=args.get("auth"),
         categories=args.get("categories"),

@@ -967,6 +967,12 @@ async def call_tool(name: str, args: dict) -> list[TextContent]:
         telemetry.log_tool_call(name, args or {}, int((time.time() - started) * 1000), err_type)
 
 
+async def _offload(fn, /, *fn_args, **fn_kwargs):
+    """Run a blocking handler in a worker thread so the MCP event loop
+    stays free to serve concurrent tool calls (P1)."""
+    return await asyncio.to_thread(fn, *fn_args, **fn_kwargs)
+
+
 async def _dispatch(name: str, args: dict) -> list[TextContent]:
     if name == "get_runner_info":
         info = {
@@ -976,10 +982,11 @@ async def _dispatch(name: str, args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(info, ensure_ascii=False, indent=2))]
 
     if name == "list_tests":
-        return [TextContent(type="text", text=runner.list_tests())]
+        return [TextContent(type="text", text=await _offload(runner.list_tests))]
 
     if name == "run_tests":
-        result = runner.run_tests(
+        result = await _offload(
+            runner.run_tests,
             filter=args.get("filter"),
             headed=args.get("headed", False),
             browser=args.get("browser", "chromium"),
@@ -987,20 +994,21 @@ async def _dispatch(name: str, args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     if name == "run_failed":
-        result = runner.run_failed()
+        result = await _offload(runner.run_failed)
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     if name == "get_test_report":
-        result = reporter.get_report_summary()
+        result = await _offload(reporter.get_report_summary)
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     if name == "get_failure_details":
-        result = reporter.get_failure_details(args.get("test_id"))
+        result = await _offload(reporter.get_failure_details, args.get("test_id"))
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     if name == "generate_test":
         module = args.get("module")
-        msg = generator.generate_test(
+        msg = await _offload(
+            generator.generate_test,
             args["description"],
             args["filename"],
             url=args.get("url"),
@@ -1025,23 +1033,24 @@ async def _dispatch(name: str, args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     if name == "codegen":
-        msg = generator.codegen(args["url"], args.get("output", "recorded_test.py"))
+        msg = await _offload(generator.codegen, args["url"], args.get("output", "recorded_test.py"))
         return [TextContent(type="text", text=msg)]
 
     if name == "generate_html_report":
-        target = html_reporter.write_report(args.get("output", "report.html"))
+        target = await _offload(html_reporter.write_report, args.get("output", "report.html"))
         return [TextContent(type="text", text=f"已產生 HTML 報告：{target}")]
 
     if name == "get_test_history":
-        result = reporter.get_history(args.get("limit", 10))
+        result = await _offload(reporter.get_history, args.get("limit", 10))
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     if name == "get_optimization_plan":
-        plan = optimizer.build_plan(
+        plan = await _offload(
+            optimizer.build_plan,
             history_limit=args.get("history_limit", 10),
             telemetry_limit=args.get("telemetry_limit", 500),
         )
-        optimizer.write_plan(plan)
+        await _offload(optimizer.write_plan, plan)
         return [TextContent(type="text", text=json.dumps(plan, ensure_ascii=False, indent=2))]
 
     if name == "analyze_url":
@@ -1057,7 +1066,7 @@ async def _dispatch(name: str, args: dict) -> list[TextContent]:
     if name == "analyze_screen":
         # Sync subprocess call — wrapped in to_thread so it doesn't block the
         # MCP server's asyncio loop while maestro CLI runs.
-        result = await asyncio.to_thread(
+        result = await _offload(
             analyzer.analyze_screen,
             args.get("app_id"),
             args.get("launch_app", False),
@@ -1086,7 +1095,7 @@ async def _dispatch(name: str, args: dict) -> list[TextContent]:
         # to a thread to keep the asyncio loop free.
         from .runners.api_security import run_scan
         args = args or {}
-        result = await asyncio.to_thread(
+        result = await _offload(
             run_scan,
             args.get("spec_url", ""),
             auth=args.get("auth"),

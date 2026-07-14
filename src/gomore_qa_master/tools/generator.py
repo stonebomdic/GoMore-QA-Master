@@ -1,5 +1,3 @@
-import inspect
-
 from ..config import PROJECT_ROOT
 from ..runners import get_runner
 from ..security import validate_filename
@@ -12,24 +10,16 @@ def generate_test(
     module: dict | None = None,
     business_context: str | None = None,
 ) -> str:
-    """Pass url/module/business_context through only to runners that declare them.
-
-    Why inspect: other runners (jest/cypress/go_test) keep the narrow
-    (description, filename) signature. Calling them with extra kwargs would
-    raise TypeError. Sniffing the signature lets us stay graceful.
-    """
+    """Pass url/module/business_context through only to runners that declare
+    them in `generation_context_fields` — narrow-signature runners
+    (jest/cypress/go_test) would TypeError on extra kwargs."""
     ok, result = validate_filename(filename, PROJECT_ROOT)
     if not ok:
         return f"error: {result}"
     runner = get_runner()
-    sig = inspect.signature(runner.generate_test)
-    extra: dict = {}
-    if "url" in sig.parameters:
-        extra["url"] = url
-    if "module" in sig.parameters:
-        extra["module"] = module
-    if "business_context" in sig.parameters:
-        extra["business_context"] = business_context
+    context = {"url": url, "module": module, "business_context": business_context}
+    extra = {k: v for k, v in context.items()
+             if k in runner.generation_context_fields}
     return runner.generate_test(description, filename, **extra)
 
 

@@ -478,3 +478,251 @@ Nothing stops you from running both side-by-side — `QA_RUNNER` is just
 an env var, and the report archive is shared. A nightly CI run could
 fire Schemathesis (broad coverage), and a per-PR run could fire Newman
 (targeted flows). Both feed the same optimizer.
+
+---
+
+## Track 3 — Verified security findings (`run_api_security_scan` + `verify_plan`)
+
+The two tracks above test *functional* behavior. The OWASP API scanner
+(`run_api_security_scan`, since v0.8) tests *security* behavior — and as
+of v0.9.6 its findings can be gated by **verified** `qa_plan` critical
+points. This is the pattern to reach for when "this endpoint must not
+leak another user's data" is an acceptance criterion, not a hope.
+
+Unlike Tracks 1–2 this is not a `QA_RUNNER` — it's a distinct tool,
+gated on `QA_API_SECURITY_CONSENT=true` (and `AUTHORIZED_DOMAINS` for
+non-localhost targets). See [`docs/prd-v0.8-api-security.md`](prd-v0.8-api-security.md)
+and `examples/sample_vulnerable_api/` for the scanner's own rules and
+fixture; this section covers only the `finding_*` bookend.
+
+### Why verified beats "the scan looked clean"
+
+A `verify_plan` critical point with a `verification_hint` is **attested**:
+it matches on a case-insensitive substring of whatever evidence you hand
+it — which means you (or the AI) can satisfy it by *saying* the right
+words. A CP with an `assert` block is **verified**: `verify_plan` loads
+`scan-results.json` itself and judges the typed assertion against ground
+truth, **ignoring any evidence passed for that CP**. A vulnerability that
+actually exists cannot be waved away, and — critically — a *missing*
+scan artifact fails the CP **closed** ("no evidence" is never "no
+vulnerability", so `finding_absent` is not satisfied either).
+
+### The two assertion types for scans
+
+| `assert.type` | Satisfied when | Use for |
+|---|---|---|
+| `finding_present` | scan has ≥1 finding matching `rule_id` (+ optional `endpoint`) | proving a known-vulnerable fixture *is* flagged (regression on the scanner, or a red-team demo) |
+| `finding_absent` | scan has **zero** matching findings **and** the artifact exists | the real gate: "this endpoint has no BOLA / broken-auth / etc." |
+
+Matching rules (identical to the `test_*` types' philosophy — see
+`SKILL.md`):
+
+- `rule_id` matches the **rule-class id by prefix**. You write the class
+  (`OWASP-API1-BOLA`); it covers every sub-finding the scanner emits
+  under it (`OWASP-API1-BOLA-CrossUserDataExposure`,
+  `…-CrossUserDataExposure`, …). You don't have to know the sub-ids.
+- `endpoint` (optional) is the finding's exact `"METHOD /path"` string,
+  e.g. `GET /vuln/orders/{order_id}` — note the space and the
+  path-template braces. Omit it to match the rule *anywhere* in the scan.
+
+### Session transcript
+
+Assume the bundled `examples/sample_vulnerable_api` is running on
+`http://127.0.0.1:5099` (a deliberately-broken Flask app — `/vuln/*`
+endpoints leak data, `/safe/*` endpoints don't).
+
+**1. `qa_plan` — declare the security contract before scanning**
+
+> **You**: Before I scan, lock in that the safe orders endpoint must be
+> clean and that we still catch the known BOLA on the vulnerable one.
+
+```jsonc
+qa_plan(task="orders BOLA gate", strict=true, critical_points=[
+  {"id":"CP1","description":"safe orders endpoint has no BOLA",
+   "assert":{"type":"finding_absent","rule_id":"OWASP-API1-BOLA",
+             "endpoint":"GET /safe/me/orders"}},
+  {"id":"CP2","description":"scanner still flags the known-vulnerable endpoint",
+   "assert":{"type":"finding_present","rule_id":"OWASP-API1-BOLA",
+             "endpoint":"GET /vuln/orders/{order_id}"}},
+])
+// → { "plan_id": "…", "strict": true, "persisted_to": "…/plans/….json" }
+```
+
+`strict:true` means `passed` requires **every** CP be verified-tier AND
+satisfied — an attested CP can never carry a strict plan. Declare it at
+`qa_plan` time; it can be tightened at verify time but never loosened.
+
+**2. `run_api_security_scan` — pass `plan_id` for a one-shot bookend**
+
+> **You**: Scan it, and verify against the plan in the same call.
+
+```jsonc
+run_api_security_scan(
+  spec_url="file:///…/examples/sample_vulnerable_api/openapi.yaml",
+  base_url="http://127.0.0.1:5099",
+  severity_threshold="low",          // lower it if a CP targets low-sev findings
+  plan_id="…"                        // ← makes the scan verify in-line
+)
+```
+
+The scanner writes a redacted `scan-results.json` **before** it runs the
+plan verification — that ordering is what lets the verified `finding_*`
+CPs load ground truth from the artifact the scan just produced. The
+response carries a `plan_verification` block:
+
+```json
+{
+  "scan_id": "412ed09fb91d",
+  "findings": [ /* … */ ],
+  "scan_results_path": "/…/scan-results.json",
+  "plan_verification": {
+    "plan_id": "…",
+    "status": "passed",
+    "checklist": [
+      {"id": "CP1", "tier": "verified", "satisfied": true,
+       "actual": {"rule_id": "OWASP-API1-BOLA",
+                  "endpoint": "GET /safe/me/orders", "hits": 0}},
+      {"id": "CP2", "tier": "verified", "satisfied": true,
+       "actual": {"rule_id": "OWASP-API1-BOLA",
+                  "endpoint": "GET /vuln/orders/{order_id}", "hits": 2}}
+    ],
+    "verification": {"verified": 2, "verified_satisfied": 2,
+                     "attested": 0, "attested_satisfied": 0}
+  }
+}
+```
+
+`CP2.actual.hits == 2` because the fixture leaks in both directions
+(user_a reads user_b's order and vice versa) — both roll up under the
+`OWASP-API1-BOLA` prefix. `CP1.hits == 0` proves the safe endpoint is
+clean *and* that a scan artifact existed to prove it.
+
+**3. Standalone `verify_plan` — same result, artifact-backed**
+
+If you scanned earlier (or in a separate step), verify without re-running
+the scan. No `evidence` needed — verified CPs self-load the artifact:
+
+```jsonc
+verify_plan(plan_id="…")
+// identical checklist; reads the scan-results.json on disk
+```
+
+Pass `evidence` and it's *ignored* for the verified CPs — that's the
+anti-forgery guarantee, not a bug. Only attested CPs (hint-only) consume
+evidence.
+
+### What breaks it — and why that's the point
+
+| Situation | CP outcome | Rationale |
+|---|---|---|
+| Scan never ran / `scan-results.json` missing | `finding_present` **and** `finding_absent` both fail | fail-closed: absence of evidence ≠ evidence of absence |
+| Real BOLA exists on the endpoint | `finding_absent` **not** satisfied | you cannot green a gate over a live vuln |
+| You pass `evidence:["all clear"]` for a verified CP | ignored; verdict from artifact only | attestation can't override ground truth |
+| `severity_threshold` above the finding's severity | finding filtered out before verify sees it | lower the threshold if a CP targets low-sev findings |
+
+The last row is the one that bites in practice: a `finding_present` CP
+silently "passes as absent" if the finding's severity is below the scan's
+threshold. When a CP targets a specific finding, scan at
+`severity_threshold="low"` so nothing is filtered out from under it.
+
+---
+
+## Track 3 — OWASP scan with verified `finding_*` bookends (v0.9.6+)
+
+The two tracks above verify *functional* behavior. The third API angle
+is the OWASP API Top 10 scanner (`run_api_security_scan`, since v0.8) —
+and since v0.9.6 you can wrap it in **verified** plan bookends: declare
+which findings must (or must not) exist *before* scanning, and let
+`verify_plan` judge the outcome from the scan artifact itself. The tool
+loads `scan-results.json` on its own and **ignores any evidence the
+host passes** — a security gate the AI can't talk its way past.
+
+The walkthrough below uses the deliberately-vulnerable Flask fixture at
+`examples/sample_vulnerable_api/` (a BOLA hole on
+`GET /vuln/orders/{order_id}`, a safe twin at `GET /safe/me/orders`).
+
+### 1. `qa_plan` — declare the security contract up front
+
+> **You**: Before scanning, pin down what "secure enough" means.
+
+```
+qa_plan(task="orders endpoint security gate", strict=true, critical_points=[
+  {"id":"CP1","description":"the known BOLA on the legacy route is detected",
+   "assert":{"type":"finding_present","rule_id":"OWASP-API1-BOLA",
+             "endpoint":"GET /vuln/orders/{order_id}"}},
+  {"id":"CP2","description":"the rewritten route is clean",
+   "assert":{"type":"finding_absent","rule_id":"OWASP-API1-BOLA",
+             "endpoint":"GET /safe/me/orders"}},
+])
+```
+
+Both CPs carry an `assert` block → both are **verified** tier. With
+`strict:true`, `verify_plan` will only ever say `passed` when every CP
+is verified AND satisfied — an attested "trust me" can never green-light
+this plan. `strict` can be tightened at verify time but never loosened.
+
+Two matching rules worth knowing (they bit us during dogfooding):
+
+- **`rule_id` is a prefix match on the rule class.** Real findings
+  carry sub-ids like `OWASP-API1-BOLA-CrossUserDataExposure`; you write
+  the class id `OWASP-API1-BOLA` and it covers all sub-ids.
+- **`endpoint` is the finding's exact `"METHOD /path"` string** — e.g.
+  `GET /vuln/orders/{order_id}`, template braces included. Omit it to
+  match the rule anywhere in the scan.
+
+### 2. `run_api_security_scan` — scan with `plan_id` for a one-shot bookend
+
+```
+run_api_security_scan(
+  spec_url="examples/sample_vulnerable_api/openapi.yaml",
+  base_url="http://127.0.0.1:5099",
+  auth={"token": "<user-a>", "alt_user_token": "<user-b>",
+        "bola_test_ids": {"user_a": [1, 3], "user_b": [2]}},
+  severity_threshold="low",
+  plan_id="<from step 1>",
+)
+```
+
+The response ends with:
+
+```json
+{
+  "findings": [
+    {
+      "rule_id": "OWASP-API1-BOLA-CrossUserDataExposure",
+      "endpoint": "GET /vuln/orders/{order_id}",
+      "severity": "high"
+    }
+  ],
+  "scan_results_path": "/path/to/project/scan-results.json",
+  "plan_verification": {
+    "status": "passed",
+    "checklist": [
+      {"id": "CP1", "tier": "verified", "satisfied": true,
+       "actual": {"hits": 1}},
+      {"id": "CP2", "tier": "verified", "satisfied": true,
+       "actual": {"hits": 0}}
+    ]
+  }
+}
+```
+
+Ordering matters and is guaranteed: the scanner writes (redacted)
+`scan-results.json` **before** running plan verification, so the
+verified `finding_*` CPs in the same call already read ground truth.
+The artifact path resolves as `GOMORE_QA_SCAN_PATH` →
+`<QA_PROJECT_ROOT>/scan-results.json`.
+
+### 3. `verify_plan` — or verify later, standalone
+
+Skip `plan_id` at scan time and the bookend still works afterwards:
+
+```
+verify_plan(plan_id)        # no evidence argument — none is needed
+```
+
+Verified CPs self-load `scan-results.json`. Three outcomes to expect:
+
+| Situation | Result |
+|---|---|
+| BOLA found on the vuln route | CP1 `satisfied: true` (`actual.hits >= 

@@ -192,6 +192,18 @@ def test_plugin_versions_match_pyproject():
         )
 
 
+def test_server_version_matches_pyproject():
+    """serverInfo.version (v0.9.6+: read from installed package metadata)
+    must equal pyproject's. Closes the drift where the MCP handshake
+    reported the mcp-lib version instead of the project's."""
+    from gomore_qa_master import server
+    assert server._SERVER_VERSION == _pyproject_version(), (
+        f"serverInfo version {server._SERVER_VERSION!r} doesn't match "
+        f"pyproject.toml {_pyproject_version()!r} — reinstall the package "
+        f"(uv pip install -e .) after bumping pyproject."
+    )
+
+
 def test_plugin_manifests_point_at_real_skills_dir():
     """If the `skills` path doesn't resolve, /plugin install fails silently.
 

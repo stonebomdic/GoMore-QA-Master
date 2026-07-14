@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, Resource
@@ -11,7 +12,16 @@ from .runners import get_runner, REGISTRY
 from .reporters import html as html_reporter
 from .config import REPORT_PATH, OPTIMIZATION_PATH
 
-app = Server("gomore-qa-master")
+# Single source of truth: report the installed package version so serverInfo
+# stays in lockstep with pyproject (which test_skill_distribution ties to the
+# plugin manifests). Previously unset → the mcp lib defaulted to its own
+# version, so serverInfo drifted from the real project version.
+try:
+    _SERVER_VERSION = _pkg_version("gomore-qa-master")
+except PackageNotFoundError:  # not installed (bare source tree) — dev fallback
+    _SERVER_VERSION = "0.0.0+dev"
+
+app = Server("gomore-qa-master", version=_SERVER_VERSION)
 
 
 @app.list_tools()
@@ -588,9 +598,16 @@ async def list_tools() -> list[Tool]:
                 "The response gains a `plan_verification` block (per-CP "
                 "checklist + overall status). One-shot equivalent of "
                 "qa_plan → run_api_security_scan → verify_plan.\n\n"
+                "v0.9.6 — writes a redacted `scan-results.json` (path via "
+                "`GOMORE_QA_SCAN_PATH` → `<QA_PROJECT_ROOT>/scan-results.json` → "
+                "`./scan-results.json`) BEFORE plan verification runs. Verified "
+                "`finding_present`/`finding_absent` CPs load ground truth from "
+                "this artifact (not host evidence), so the plan_id bookend is "
+                "artifact-backed. Response gains `scan_results_path`.\n\n"
                 "Returns: {scan_id, spec_url, base_url, categories_run, rules_ran, "
                 "ops_scanned, severity_threshold, findings[...], summary{total, by_severity}, "
-                "findings_below_threshold_count, plan_verification (only when plan_id given)}.\n\n"
+                "findings_below_threshold_count, scan_results_path, "
+                "plan_verification (only when plan_id given)}.\n\n"
                 "Error shapes: consent_required / unauthorized_domain / spec_load_failed / "
                 "no_base_url / unknown_categories / bad_severity_threshold."
             ),
@@ -687,8 +704,12 @@ async def list_tools() -> list[Tool]:
                 "Returns: {plan_id (12 hex chars), task, kind, critical_points "
                 "[{id, description, verification_hint}], created_at, expires_at, "
                 "persisted_to (filesystem path or null when persistence is off)}.\n\n"
+                "v0.9.6 — a CP may carry an `assert` block to become 'verified' "
+                "(artifact-backed) rather than 'attested' (hint substring); and a "
+                "top-level `strict` flag can require all CPs be verified. See the "
+                "`critical_points` / `strict` schema for details.\n\n"
                 "Error shapes: no_task / no_critical_points / bad_critical_points "
-                "(duplicate id, missing description, wrong type) / bad_kind."
+                "(duplicate id, missing description, wrong type, bad assert) / bad_kind."
             ),
             inputSchema={
                 "type": "object",
@@ -720,6 +741,34 @@ async def list_tools() -> list[Tool]:
                                         "id": {"type": "string"},
                                         "description": {"type": "string"},
                                         "verification_hint": {"type": "string"},
+                                        "assert": {
+                                            "type": "object",
+                                            "description": (
+                                                "v0.9.6 — makes this CP 'verified' "
+                                                "(artifact-backed) instead of "
+                                                "'attested' (hint substring). "
+                                                "verify_plan loads the authoritative "
+                                                "artifact itself and IGNORES host-"
+                                                "supplied evidence for this CP, so it "
+                                                "can't be faked. Types: "
+                                                "test_passed{test_id, match?}, "
+                                                "test_outcome{test_id, expected}, "
+                                                "finding_present{rule_id, endpoint?}, "
+                                                "finding_absent{rule_id, endpoint?}. "
+                                                "test_id defaults to exact-or-suffix "
+                                                "match (incl. parametrized variants); "
+                                                "set match:'substring' to opt into "
+                                                "loose matching."
+                                            ),
+                                            "properties": {
+                                                "type": {
+                                                    "type": "string",
+                                                    "enum": ["test_passed", "test_outcome",
+                                                             "finding_present", "finding_absent"],
+                                                },
+                                            },
+                                            "required": ["type"],
+                                        },
                                     },
                                     "required": ["description"],
                                 },
@@ -732,6 +781,17 @@ async def list_tools() -> list[Tool]:
                         "description": (
                             "Optional. Hint for downstream verifiers about which "
                             "evidence stream to expect. Omit if unsure."
+                        ),
+                    },
+                    "strict": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "v0.9.6 — Declared at creation and fixed. When true, "
+                            "verify_plan only returns 'passed' if EVERY CP is "
+                            "verified-tier (artifact-backed) AND satisfied — "
+                            "attested (hint-only) CPs never suffice. verify_plan's "
+                            "own strict arg can only tighten this, never loosen it."
                         ),
                     },
                 },
@@ -770,15 +830,26 @@ async def list_tools() -> list[Tool]:
                 "response's `plan_source` field reports where the plan came "
                 "from: 'memory' (cache hit) or 'disk' (loaded from "
                 "<plans_dir>/<plan_id>.json after a restart / eviction).\n\n"
-                "Returns: {plan_id, task, kind, status, checklist[{id, "
-                "description, verification_hint, satisfied, matched_evidence}], "
-                "unmet[], summary{total, satisfied, unsatisfied}, "
-                "evidence_sources{explicit_count, autodiscovered, "
-                "autodiscovered_count, report_path}, plan_source ('memory' or "
-                "'disk'), verified_at}.\n\n"
+                "v0.9.6 — verified vs attested tiers. A CP with an `assert` block "
+                "is 'verified': the tool loads the authoritative artifact "
+                "(report.json for test_*; scan-results for finding_*) and judges "
+                "the typed assertion itself, IGNORING host-supplied evidence — so "
+                "it can't be faked. A failed test therefore can't satisfy "
+                "test_passed (the bug the substring matcher had). Missing artifact "
+                "= fail-closed (never satisfied, incl. finding_absent). CPs without "
+                "`assert` stay 'attested' (substring, unchanged). The `strict` arg "
+                "(or a strict plan) requires every CP be verified AND satisfied for "
+                "'passed'. Each checklist entry carries `tier`; verified entries "
+                "add `assertion` + `actual`. Response also gains `verification"
+                "{verified, verified_satisfied, attested, attested_satisfied}`.\n\n"
+                "Returns: {plan_id, task, kind, strict, status, checklist[{id, "
+                "description, verification_hint, tier, satisfied, matched_evidence, "
+                "assertion?, actual?}], unmet[], summary{total, satisfied, "
+                "unsatisfied}, verification{...}, evidence_sources{...}, "
+                "plan_source ('memory' or 'disk'), verified_at}.\n\n"
                 "Error shapes: no_plan_id / plan_not_found / no_evidence "
-                "(only when both explicit evidence AND auto_discover are "
-                "omitted) / bad_evidence."
+                "(only when there's an attested CP AND both explicit evidence AND "
+                "auto_discover are omitted) / bad_evidence."
             ),
             inputSchema={
                 "type": "object",
@@ -817,7 +888,18 @@ async def list_tools() -> list[Tool]:
                             "auto_discover is true. Defaults to "
                             "`GOMORE_QA_REPORT_PATH` env, then "
                             "`<QA_PROJECT_ROOT>/report.json`, then "
-                            "`./report.json`."
+                            "`./report.json`. Also used to resolve the artifact "
+                            "for verified-tier `test_passed`/`test_outcome` CPs."
+                        ),
+                    },
+                    "strict": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "v0.9.6 — Tighten verification for this call: require "
+                            "every CP to be verified-tier AND satisfied for "
+                            "'passed'. Can only tighten — if the plan was created "
+                            "strict, passing false here does NOT loosen it."
                         ),
                     },
                 },

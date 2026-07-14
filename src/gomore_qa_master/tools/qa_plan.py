@@ -70,6 +70,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from . import assertions
+
 
 # ---- config -------------------------------------------------------------
 
@@ -96,13 +98,20 @@ class _CriticalPoint:
     cp_id: str
     description: str
     verification_hint: str
+    # v0.9.6: when present, this CP is "verified" — verify_plan evaluates
+    # the typed assertion against an artifact the tool loads itself,
+    # ignoring host-supplied evidence. Absent → legacy "attested" path.
+    assertion: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "id": self.cp_id,
             "description": self.description,
             "verification_hint": self.verification_hint,
         }
+        if self.assertion is not None:
+            out["assert"] = self.assertion
+        return out
 
 
 @dataclass
@@ -113,6 +122,10 @@ class _Plan:
     critical_points: list[_CriticalPoint]
     created_at: datetime
     expires_at: datetime
+    # v0.9.6: declared at creation and fixed. verify_plan's strict arg may
+    # only tighten (turn on), never loosen — the contract is set before
+    # acting, in keeping with the anti-gaming design.
+    strict: bool = False
 
 
 # ---- store -------------------------------------------------------------
@@ -203,6 +216,7 @@ def _normalize_critical_points(raw: Any) -> tuple[list[_CriticalPoint], str | No
     out: list[_CriticalPoint] = []
     seen_ids: set[str] = set()
     for idx, item in enumerate(raw, start=1):
+        assertion: dict[str, Any] | None = None
         if isinstance(item, str):
             cp_id = f"CP{idx}"
             description = item.strip()
@@ -213,6 +227,16 @@ def _normalize_critical_points(raw: Any) -> tuple[list[_CriticalPoint], str | No
                 return [], f"critical_points[{idx - 1}] missing `description`"
             cp_id = str(item.get("id") or f"CP{idx}").strip()
             verification_hint = str(item.get("verification_hint") or description).strip()
+            raw_assert = item.get("assert")
+            if raw_assert is not None:
+                if not isinstance(raw_assert, dict):
+                    return [], (
+                        f"critical_points[{idx - 1}].assert must be a dict, "
+                        f"got {type(raw_assert).__name__}"
+                    )
+                if not str(raw_assert.get("type") or "").strip():
+                    return [], f"critical_points[{idx - 1}].assert missing `type`"
+                assertion = raw_assert
         else:
             return [], (
                 f"critical_points[{idx - 1}] must be str or dict, "
@@ -222,7 +246,8 @@ def _normalize_critical_points(raw: Any) -> tuple[list[_CriticalPoint], str | No
             return [], f"duplicate critical_point id: {cp_id!r}"
         seen_ids.add(cp_id)
         out.append(_CriticalPoint(cp_id=cp_id, description=description,
-                                  verification_hint=verification_hint))
+                                  verification_hint=verification_hint,
+                                  assertion=assertion))
     return out, None
 
 
@@ -326,6 +351,7 @@ def _plan_to_json(plan: "_Plan") -> dict[str, Any]:
         "plan_id": plan.plan_id,
         "task": plan.task,
         "kind": plan.kind,
+        "strict": plan.strict,
         "critical_points": [cp.to_dict() for cp in plan.critical_points],
         "created_at": plan.created_at.isoformat(),
         "expires_at": plan.expires_at.isoformat(),
@@ -339,6 +365,7 @@ def _plan_from_json(data: dict[str, Any]) -> "_Plan | None":
         plan_id = data["plan_id"]
         task = data["task"]
         kind = data.get("kind")
+        strict = bool(data.get("strict", False))
         cps_raw = data["critical_points"]
         created_at = datetime.fromisoformat(data["created_at"])
         expires_at = datetime.fromisoformat(data["expires_at"])
@@ -351,11 +378,13 @@ def _plan_from_json(data: dict[str, Any]) -> "_Plan | None":
         if not isinstance(entry, dict):
             return None
         try:
+            raw_assert = entry.get("assert")
             cps.append(_CriticalPoint(
                 cp_id=str(entry["id"]),
                 description=str(entry["description"]),
                 verification_hint=str(entry.get("verification_hint")
                                       or entry["description"]),
+                assertion=raw_assert if isinstance(raw_assert, dict) else None,
             ))
         except KeyError:
             return None
@@ -363,6 +392,7 @@ def _plan_from_json(data: dict[str, Any]) -> "_Plan | None":
         plan_id=plan_id, task=task, kind=kind,
         critical_points=cps,
         created_at=created_at, expires_at=expires_at,
+        strict=strict,
     )
 
 
@@ -511,6 +541,43 @@ def _match_cp(cp: _CriticalPoint, evidence: Iterable[Any]) -> list[Any]:
     return matched
 
 
+# ---- verified-tier artifact loading (v0.9.6) --------------------------
+
+def _load_report_dict(report_path: Path | None) -> dict[str, Any] | None:
+    """Load the full pytest-json-report dict for typed assertions.
+
+    Unlike _autodiscover_evidence (which returns just the `tests` list for
+    the attested path), verified assertions need the whole doc. Returns
+    None on any read/parse failure — the assertion layer treats None as
+    fail-closed (never satisfied).
+    """
+    if report_path is None:
+        return None
+    try:
+        if not report_path.is_file():
+            return None
+        data = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _load_scan_dict() -> dict[str, Any] | None:
+    """Load the scan-results artifact (written by run_api_security_scan) for
+    finding_* assertions. Resolves the path via config.default_scan_path()
+    at call time. Returns None on any read/parse failure — fail-closed.
+    """
+    from ..config import default_scan_path
+    try:
+        path = default_scan_path()
+        if not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 # ---- tool entry points -------------------------------------------------
 
 def qa_plan_tool(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -565,12 +632,14 @@ def qa_plan_tool(arguments: dict[str, Any]) -> dict[str, Any]:
         critical_points=critical_points,
         created_at=now,
         expires_at=now + timedelta(seconds=_CACHE_TTL_SECONDS),
+        strict=bool(arguments.get("strict", False)),
     )
     persisted_to = _store_plan(plan)
     return {
         "plan_id": plan.plan_id,
         "task": plan.task,
         "kind": plan.kind,
+        "strict": plan.strict,
         "critical_points": [cp.to_dict() for cp in plan.critical_points],
         "created_at": plan.created_at.isoformat(),
         "expires_at": plan.expires_at.isoformat(),
@@ -636,14 +705,20 @@ def verify_plan_tool(arguments: dict[str, Any]) -> dict[str, Any]:
     auto_discover = bool(arguments.get("auto_discover", False))
     report_path_arg = arguments.get("report_path")
 
-    if explicit_evidence is None and not auto_discover:
+    # Verified CPs load their own authoritative artifact, so a plan made up
+    # entirely of them needs no evidence/auto_discover. Only require evidence
+    # when there's at least one attested (hint-only) CP to satisfy.
+    has_attested = any(cp.assertion is None for cp in plan.critical_points)
+    if has_attested and explicit_evidence is None and not auto_discover:
         return {
             "error": "no_evidence",
             "retryable": False,
             "hint": (
                 "verify_plan needs either an explicit `evidence` list "
                 "(may be empty) OR `auto_discover=true` to read evidence "
-                "from the project's report.json. Pass at least one."
+                "from the project's report.json. Pass at least one. "
+                "(Verified CPs with an `assert` block are exempt — they "
+                "load their own artifact.)"
             ),
         }
     if explicit_evidence is not None and not isinstance(explicit_evidence, list):
@@ -680,36 +755,88 @@ def verify_plan_tool(arguments: dict[str, Any]) -> dict[str, Any]:
             # path we LOOKED at so the user can diagnose.
             sources["report_path"] = str(resolved_report_path)
 
+    # ---- lazily load authoritative artifacts for verified CPs ----
+    # Only load what some verified CP actually needs. The host's `evidence`
+    # is NEVER consulted for a verified CP — that's the anti-forgery core.
+    needed_kinds = {
+        assertions.artifact_kind_for(str(cp.assertion.get("type")))
+        for cp in plan.critical_points if cp.assertion is not None
+    }
+    artifacts: dict[str, Any] = {}
+    if "report" in needed_kinds:
+        if isinstance(report_path_arg, str) and report_path_arg.strip():
+            report_path = Path(report_path_arg).expanduser().resolve()
+        else:
+            report_path = _default_report_path()
+        artifacts["report"] = _load_report_dict(report_path)
+    if "scan" in needed_kinds:
+        artifacts["scan"] = _load_scan_dict()
+
     checklist: list[dict[str, Any]] = []
     satisfied_count = 0
     unmet: list[str] = []
+    verified_total = verified_satisfied = attested_total = attested_satisfied = 0
     for cp in plan.critical_points:
-        matched = _match_cp(cp, evidence)
-        satisfied = bool(matched)
+        if cp.assertion is not None:
+            kind = assertions.artifact_kind_for(str(cp.assertion.get("type")))
+            satisfied, actual = assertions.evaluate(cp.assertion, artifacts.get(kind))
+            verified_total += 1
+            verified_satisfied += int(satisfied)
+            entry = {
+                "id": cp.cp_id,
+                "description": cp.description,
+                "verification_hint": cp.verification_hint,
+                "tier": "verified",
+                "assertion": cp.assertion,
+                "actual": actual,
+                "satisfied": satisfied,
+                "matched_evidence": [],
+            }
+        else:
+            matched = _match_cp(cp, evidence)
+            satisfied = bool(matched)
+            attested_total += 1
+            attested_satisfied += int(satisfied)
+            entry = {
+                "id": cp.cp_id,
+                "description": cp.description,
+                "verification_hint": cp.verification_hint,
+                "tier": "attested",
+                "satisfied": satisfied,
+                "matched_evidence": matched,
+            }
         if satisfied:
             satisfied_count += 1
         else:
             unmet.append(cp.cp_id)
-        checklist.append({
-            "id": cp.cp_id,
-            "description": cp.description,
-            "verification_hint": cp.verification_hint,
-            "satisfied": satisfied,
-            "matched_evidence": matched,
-        })
+        checklist.append(entry)
 
     total = len(plan.critical_points)
-    if satisfied_count == total:
-        status = "passed"
-    elif satisfied_count == 0:
-        status = "failed"
+    # Effective strict = declared-at-creation OR requested-at-verify (can
+    # only tighten, never loosen). Under strict, "passed" requires every CP
+    # to be BOTH verified-tier AND satisfied — attested CPs never suffice.
+    strict = bool(plan.strict or arguments.get("strict", False))
+    if strict:
+        all_verified_and_ok = (verified_satisfied == total)
+        if all_verified_and_ok and total > 0:
+            status = "passed"
+        elif satisfied_count == 0:
+            status = "failed"
+        else:
+            status = "incomplete"
     else:
-        status = "incomplete"
+        if satisfied_count == total:
+            status = "passed"
+        elif satisfied_count == 0:
+            status = "failed"
+        else:
+            status = "incomplete"
 
     return {
         "plan_id": plan.plan_id,
         "task": plan.task,
         "kind": plan.kind,
+        "strict": strict,
         "status": status,
         "checklist": checklist,
         "unmet": unmet,
@@ -717,6 +844,12 @@ def verify_plan_tool(arguments: dict[str, Any]) -> dict[str, Any]:
             "total": total,
             "satisfied": satisfied_count,
             "unsatisfied": total - satisfied_count,
+        },
+        "verification": {
+            "verified": verified_total,
+            "verified_satisfied": verified_satisfied,
+            "attested": attested_total,
+            "attested_satisfied": attested_satisfied,
         },
         "evidence_sources": sources,
         "plan_source": plan_source,  # "memory" or "disk"

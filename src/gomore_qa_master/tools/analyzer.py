@@ -9,6 +9,7 @@ Both emit the same shape — modules + candidate TCs — so the MCP client
 agnostic and side-effect-free on the target.
 """
 import json as _json
+import os
 import re
 import shutil
 import subprocess
@@ -21,7 +22,20 @@ async def analyze_url(
     url: str,
     timeout_ms: int = 15000,
     auth_cookie: str | None = None,
+    auth_storage: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    resolved_storage: dict[str, str] = {}
+    if auth_storage:
+        try:
+            resolved_storage = _resolve_auth_storage(auth_storage)
+        except KeyError as e:
+            return {
+                "error": f"auth_storage 引用的環境變數不存在：{e.args[0]}",
+                "url": url,
+            }
+        except TypeError as e:
+            return {"error": str(e), "url": url}
+
     try:
         from playwright.async_api import async_playwright
     except ImportError:
@@ -39,6 +53,11 @@ async def analyze_url(
             cookies = _parse_cookie_string(auth_cookie, url) if auth_cookie else []
             if cookies:
                 await context.add_cookies(cookies)
+            if resolved_storage:
+                target_origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+                await context.add_init_script(
+                    _storage_init_script(resolved_storage, target_origin)
+                )
             page = await context.new_page()
 
             def on_request(req):
@@ -95,6 +114,71 @@ async def analyze_url(
         "layout_warning_count": len(layout_warnings),
         "layout_warnings": layout_warnings,
     }
+
+
+# A value is treated as an `$ENV_NAME` indirection only when it's the WHOLE
+# string and looks like a valid identifier — "$", "$1BADNAME", or a real
+# token that happens to start with "$" all fall through as literals instead
+# of raising.
+_ENV_REF_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _resolve_auth_storage(auth_storage: dict[str, str]) -> dict[str, str]:
+    """Expand `$ENV_NAME` indirection in auth_storage values.
+
+    A value that fully matches `$ENV_NAME` (see `_ENV_REF_RE`) is looked up
+    in os.environ (real token stays out of chat/tool-call logs); anything
+    else — including a bare "$" or a malformed reference — passes through
+    as a literal. Raises KeyError (with the missing var name) when a valid
+    `$ENV_NAME` reference can't be resolved — callers must surface this as
+    an explicit error, never silently drop the key. Raises TypeError when
+    a value isn't a string at all.
+    """
+    resolved: dict[str, str] = {}
+    for key, value in auth_storage.items():
+        if not isinstance(value, str):
+            raise TypeError("auth_storage 的值必須是字串")
+        m = _ENV_REF_RE.fullmatch(value)
+        if m:
+            env_name = m.group(1)
+            if env_name not in os.environ:
+                raise KeyError(env_name)
+            resolved[key] = os.environ[env_name]
+        else:
+            resolved[key] = value
+    return resolved
+
+
+def _storage_init_script(storage: dict[str, str], origin: str) -> str:
+    """Build a `context.add_init_script` JS body that seeds localStorage
+    before any page script runs — scoped to `origin` only.
+
+    Without an origin guard, the init script would run on EVERY document
+    the browsing context creates for this page load, including cross-origin
+    iframes (ads / analytics / support-widget embeds) and SSO redirect
+    hops — writing the same token into localStorage on domains that have
+    no business seeing it. The whole body is also wrapped in try/catch:
+    `location.origin` access or localStorage itself can throw
+    (SecurityError) in sandboxed / about:blank frames, and that must not
+    surface as noisy console errors.
+
+    One `localStorage.setItem(...)` statement per key; keys and values are
+    JSON-serialized to keep them safe string literals (no JS-injection via
+    quotes/backslashes/newlines in either).
+    """
+    if not storage:
+        return ""
+    body = "\n".join(
+        f"    localStorage.setItem({_json.dumps(key)}, {_json.dumps(value)});"
+        for key, value in storage.items()
+    )
+    return (
+        "try {\n"
+        f"  if (location.origin === {_json.dumps(origin)}) {{\n"
+        f"{body}\n"
+        "  }\n"
+        "} catch (e) {}"
+    )
 
 
 def _parse_cookie_string(cookie_str: str, url: str) -> list[dict]:

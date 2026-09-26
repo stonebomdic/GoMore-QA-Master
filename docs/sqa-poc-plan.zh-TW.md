@@ -207,9 +207,11 @@ QA_RUNNER=maestro QA_PROJECT_ROOT=$PWD/poc-mobile gomore-qa-master
 3. `verify_plan`（可開 `auto_discover:true` 讀 report.json）。
 4. **刻意假陽性測試**：放一個故意不滿足的 critical point，確認回 `incomplete`（驗證子字串比對弱點對你們是否可接受）。
 
-- [ ] 三組工具皆可在 Claude Code 呼叫
-- [ ] plan→verify 迴路運作
-- [ ] 假陽性測試：verify 正確回報未滿足
+- [x] ~~三組~~**兩組**工具皆可在 Claude Code 呼叫（2026-09-26 實測；Phase 4 對 Flutter NO-GO，故不設 qa-mobile entry，只掛 qa-api + qa-web）
+- [x] plan→verify 迴路運作（`qa_plan` 宣告 2 CP → pytest 產 report.json → `verify_plan auto_discover:true` 正確比對 nodeid evidence，CP1 satisfied）
+- [x] 假陽性測試：verify 正確回報未滿足（哨兵 CP `test_checkout_flow_nonexistent` → `satisfied:false`、整體 `status:"incomplete"`，行為正確）
+
+> ⚠️ **Phase 5 新發現**：經 MCP 呼叫 `run_tests` / `list_tests` 失敗 — `FileNotFoundError: pytest`。runner 以**裸 `pytest` 指令**呼叫（附錄 F-2 已預警），MCP server 行程的 PATH 不含 venv bin。 本次以手動 `PATH=<venv>/bin pytest --json-report` 繞過完成迴路驗證；根治須改 `sys.executable -m pytest`（已列入 fork 加固項）。
 
 ---
 
@@ -217,18 +219,20 @@ QA_RUNNER=maestro QA_PROJECT_ROOT=$PWD/poc-mobile gomore-qa-master
 
 評分（1–5 分，3 為可接受門檻）：
 
+評分已定稿於 [`poc-summary-report.zh-TW.md`](poc-summary-report.zh-TW.md) §4（單一事實來源），此處同步摘錄：
+
 | 評估面向 | 量測來源 | 分數 | 備註 |
 |---|---|---|---|
-| 安裝 / 上手難度 | Phase 0–1 | | |
-| 內部 API 功能驗證 | Phase 2a | | |
-| API 安全掃描真陽性率 | Phase 2b（比對已知漏洞） | | |
-| Web 產測品質 | Phase 3 人工審查 | | |
-| Mobile（iOS + Android） | Phase 4 | | |
-| 報告可讀性 / 可交付 | HTML 報告 | | |
-| 安全護欄充分性 | 路徑/注入/timeout/redaction | | |
-| Claude Code 整合成本 | Phase 5 | | |
-| 授權 / 合規 | captcha 已停用、MIT 授權符合內部政策？ | | |
-| 長期維護風險 | 單一作者 + Beta，是否需 fork 內部化 | | |
+| 安裝 / 上手難度 | Phase 0–1 | 3 | Python 版本 / editable `.pth` 有摩擦 |
+| 內部 API 功能驗證 | Phase 2a | **5** | schemathesis 零設定即抓 7 真 bug |
+| API 安全掃描真陽性率 | Phase 2b（比對已知漏洞） | 2 | BOLA 假陽性高，findings 須人工覆核 |
+| Web 產測品質 | Phase 3 人工審查 | 2 | 僅 API 探勘有用；表單/資料表偵測失效 |
+| Mobile（iOS + Android） | Phase 4 | 1 | analyze_screen 對 Flutter canvas 失效 + 環境成本高 |
+| 報告可讀性 / 可交付 | HTML 報告 | **5** | 自包含 HTML + 內嵌截圖，產品級 |
+| 安全護欄充分性 | 路徑/注入/timeout/redaction | 4 | consent gate 完整 |
+| Claude Code 整合成本 | Phase 5 | 3 | 兩 entry 可用；但 runner 裸 `pytest` 呼叫需 PATH 帶 venv（見 Phase 5 新發現） |
+| 授權 / 合規 | captcha 已停用、MIT 授權符合內部政策？ | 3 | MIT；CAPTCHA solver 維持停用 |
+| 長期維護風險 | 單一作者 + Beta，是否需 fork 內部化 | 2 | 建議 fork 內部化、鎖版本 |
 
 ### 已知風險（決策時納入）
 

@@ -19,7 +19,8 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    # 2.x 移除了 Server.list_tools() 等 1.x decorator API（2026-09 實測），鎖 <2。
+    "mcp>=1.0.0,<2",
     "playwright>=1.40.0",
     "pytest>=8.0.0",
     "pytest-playwright>=0.4.0",

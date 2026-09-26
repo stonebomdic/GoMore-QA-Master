@@ -546,9 +546,7 @@ def _is_noise_text(text: str) -> bool:
         return True
     if _NOISE_PREFIX_RE.search(t):
         return True
-    if _NOISE_SUFFIX_RE.search(t):
-        return True
-    return False
+    return bool(_NOISE_SUFFIX_RE.search(t))
 
 
 def _walk_screen(node: dict, out: list, depth: int) -> None:

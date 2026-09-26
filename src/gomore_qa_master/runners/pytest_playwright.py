@@ -7,9 +7,10 @@ import subprocess
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from .base import TestRunner
-from ..config import PROJECT_ROOT, REPORT_PATH, JUNIT_PATH, ARTIFACTS_DIR, HISTORY_DIR
+
+from ..config import ARTIFACTS_DIR, HISTORY_DIR, JUNIT_PATH, PROJECT_ROOT, REPORT_PATH
 from ..security import safe_run
+from .base import TestRunner
 
 
 def _parse_docstrings(file_path: Path) -> dict[str, str]:

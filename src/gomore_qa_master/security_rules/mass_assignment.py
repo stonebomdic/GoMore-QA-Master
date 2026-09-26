@@ -82,7 +82,6 @@ from typing import Any
 
 from .base import APIClient, Finding, OperationContext, Severity
 
-
 # Top-level fields most APIs SHOULD reject (or silently drop) when
 # a client supplies them. Tuple of (field_name, dangerous_value).
 # Value chosen to be contrarian — a normal signup user is "user",
@@ -128,7 +127,7 @@ def _placeholder_for(prop_schema: dict[str, Any], field_name: str) -> Any:
     """Type-based placeholder. `field_name` only used to bias strings
     toward something plausible (email-shaped if the name says
     `email`, etc.)."""
-    if "enum" in prop_schema and prop_schema["enum"]:
+    if prop_schema.get("enum"):
         return prop_schema["enum"][0]
     t = prop_schema.get("type", "string")
     if t == "string":

@@ -1,7 +1,7 @@
-from pathlib import Path
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 PROJECT_ROOT = Path(os.getenv("QA_PROJECT_ROOT", "./tests_project")).resolve()
 

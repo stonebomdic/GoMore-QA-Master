@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # ---- report (functional test) family ----------------------------------
 
 def _iter_test_rows(report: dict[str, Any]) -> list[dict]:
@@ -63,9 +62,7 @@ def _finding_matches(f: dict, rule_id: str, endpoint: str | None) -> bool:
     fid = str(f.get("rule_id", ""))
     if not (fid == rule_id or fid.startswith(rule_id + "-")):
         return False
-    if endpoint and str(f.get("endpoint")) != endpoint:
-        return False
-    return True
+    return not endpoint or str(f.get("endpoint")) == endpoint
 
 
 def _check_finding(assertion: dict, scan: dict, present: bool) -> tuple[bool, dict]:

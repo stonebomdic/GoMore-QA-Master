@@ -45,11 +45,11 @@ def _client(*, auth_pair: AuthPair | None = None, response=None,
 
 
 def _pair(**overrides) -> AuthPair:
-    defaults = dict(
-        user_a_token="alice-token",
-        user_b_token="bob-token",
-        bola_test_ids={"user_a": [1, 3], "user_b": [2]},
-    )
+    defaults = {
+        "user_a_token": "alice-token",
+        "user_b_token": "bob-token",
+        "bola_test_ids": {"user_a": [1, 3], "user_b": [2]},
+    }
     defaults.update(overrides)
     return AuthPair(**defaults)
 

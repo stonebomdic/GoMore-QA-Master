@@ -14,7 +14,6 @@ from gomore_qa_master import config
 from gomore_qa_master.runners import api_security
 from gomore_qa_master.runners.api_security import run_scan
 
-
 MINIMAL_SPEC = {
     "openapi": "3.0.0",
     "info": {"title": "Test API", "version": "1.0"},

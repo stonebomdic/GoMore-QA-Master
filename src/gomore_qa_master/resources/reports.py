@@ -1,6 +1,6 @@
 """Resource providers for test reports and artifacts."""
 
-from ..config import REPORT_PATH, ARTIFACTS_DIR
+from ..config import ARTIFACTS_DIR, REPORT_PATH
 
 
 def latest_report_uri() -> str:

@@ -23,14 +23,13 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from .base import TestRunner
 from ..config import (
+    HISTORY_DIR,
     PROJECT_ROOT,
     REPORT_PATH,
-    HISTORY_DIR,
 )
 from ..security import safe_run
-
+from .base import TestRunner
 
 # Secret-redaction patterns. Applied to request bodies, response bodies, and
 # the raw assertion message before anything is written to disk. Disabled by

@@ -47,7 +47,6 @@ import yaml
 
 from ..config import default_scan_path
 from ..security_rules import (
-    ALL_RULES,
     APIClient,
     AuthPair,
     Finding,
@@ -60,7 +59,6 @@ from ..security_rules import (
     headers_misconfig_rule,
     mass_assignment_rule,
 )
-
 
 # Short-name → rule object. Keep this stable; users pass these in via
 # the `categories` list arg.
@@ -409,8 +407,7 @@ def run_scan(
             if not r.applies_to(op):
                 continue
             try:
-                for f in r.execute(client, op):
-                    all_findings.append(f)
+                all_findings.extend(r.execute(client, op))
             except Exception as e:
                 # A rule blew up — surface it as INFO, keep scanning.
                 all_findings.append(Finding(

@@ -13,9 +13,9 @@ import pytest
 
 from gomore_qa_master.tools import qa_plan
 from gomore_qa_master.tools.qa_plan import (
+    _ACTIVE_PLANS,
     _CACHE_MAX,
     _CACHE_TTL_SECONDS,
-    _ACTIVE_PLANS,
     _reset_cache_for_tests,
     qa_plan_tool,
     verify_plan_tool,

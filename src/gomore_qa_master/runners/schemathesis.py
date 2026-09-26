@@ -22,15 +22,14 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .base import TestRunner
 from ..config import (
+    HISTORY_DIR,
+    JUNIT_PATH,
     PROJECT_ROOT,
     REPORT_PATH,
-    JUNIT_PATH,
-    HISTORY_DIR,
 )
 from ..security import safe_run
-
+from .base import TestRunner
 
 # Secret-redaction patterns. Applied to request bodies, response bodies, and
 # the raw violation message before anything is written to disk. Disabled by

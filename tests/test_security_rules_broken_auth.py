@@ -15,7 +15,6 @@ import pytest
 
 from gomore_qa_master.security_rules import (
     APIClient,
-    BrokenAuthRule,
     OperationContext,
     Severity,
 )
@@ -25,7 +24,6 @@ from gomore_qa_master.security_rules.broken_auth import (
     _forge_alg_none_jwt,
     rule,
 )
-
 
 # ---- helpers --------------------------------------------------------------
 

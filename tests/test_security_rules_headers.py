@@ -9,14 +9,13 @@ tests catch "the rule's actually broken").
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from gomore_qa_master.security_rules import (
     APIClient,
     Finding,
-    HeadersMisconfigRule,
     OperationContext,
     Severity,
 )
@@ -25,7 +24,6 @@ from gomore_qa_master.security_rules.headers_misconfig import (
     _resolve_path,
     rule,
 )
-
 
 # ---- helpers --------------------------------------------------------------
 

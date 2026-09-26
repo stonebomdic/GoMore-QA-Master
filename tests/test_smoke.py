@@ -13,7 +13,6 @@ own, otherwise "doesn't test itself" is a real credibility hit.
 
 import asyncio
 
-
 EXPECTED_TOOLS = {
     "get_runner_info",
     "list_tests",
@@ -40,7 +39,7 @@ EXPECTED_TOOLS = {
 
 
 def test_package_importable():
-    import gomore_qa_master  # noqa: F401
+    import gomore_qa_master
     import gomore_qa_master.server  # noqa: F401
 
 
@@ -125,6 +124,7 @@ def test_qa_lang_alias_normalization():
     config.py under different env values."""
     import importlib
     import os
+
     import gomore_qa_master.config as cfg
 
     original = os.environ.get("QA_LANG")

@@ -214,7 +214,7 @@ def test_strict_from_plan_cannot_be_loosened(tmp_path):
 
 def test_verify_time_strict_can_tighten(tmp_path):
     """Plan non-strict, verify strict=True → strict applies."""
-    report = _make_report(tmp_path, [
+    _make_report(tmp_path, [
         {"nodeid": "tests/test_login.py::test_login", "outcome": "passed"}])
     plan = qa_plan_tool({
         "task": "t",

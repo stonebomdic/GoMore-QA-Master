@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from gomore_qa_master.tools import assertions
 
-
 # ---- fixtures ----------------------------------------------------------
 
 def _report(*rows):

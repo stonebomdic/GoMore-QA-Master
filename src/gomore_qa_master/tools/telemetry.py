@@ -14,10 +14,10 @@ from datetime import datetime
 from pathlib import Path
 
 from ..config import (
-    TELEMETRY_DIR,
-    TOOL_USAGE_LOG,
     GENERATION_LOG,
     MODULES_LOG,
+    TELEMETRY_DIR,
+    TOOL_USAGE_LOG,
 )
 
 

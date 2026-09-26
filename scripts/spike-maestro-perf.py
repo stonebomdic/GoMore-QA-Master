@@ -78,7 +78,7 @@ def _run_flow(yaml_body: str, *, timeout_s: float = 120.0) -> tuple[float, int, 
 
 def _measure(label: str, yaml_body: str, *, iterations: int = 5) -> None:
     print(f"\n=== {label} ===")
-    print(f"  YAML body:")
+    print("  YAML body:")
     for line in yaml_body.rstrip().splitlines():
         print(f"    {line}")
     times: list[float] = []
@@ -109,7 +109,7 @@ def main() -> int:
         )
         return 2
 
-    print(f"Maestro version:")
+    print("Maestro version:")
     subprocess.run(["maestro", "--version"], capture_output=True, text=True)
     print(f"Target app id: {app_id}")
 

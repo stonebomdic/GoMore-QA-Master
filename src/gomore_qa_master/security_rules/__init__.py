@@ -19,9 +19,12 @@ from .bola import (
     bola_rule,
     function_authz_rule,
 )
-from .broken_auth import BrokenAuthRule, rule as broken_auth_rule
-from .headers_misconfig import HeadersMisconfigRule, rule as headers_misconfig_rule
-from .mass_assignment import MassAssignmentRule, rule as mass_assignment_rule
+from .broken_auth import BrokenAuthRule
+from .broken_auth import rule as broken_auth_rule
+from .headers_misconfig import HeadersMisconfigRule
+from .headers_misconfig import rule as headers_misconfig_rule
+from .mass_assignment import MassAssignmentRule
+from .mass_assignment import rule as mass_assignment_rule
 
 # Registry of rules implemented so far. Ordered for deterministic
 # scanner output. All 5 in-scope OWASP categories are now present;

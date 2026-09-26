@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from gomore_qa_master.tools import optimizer
 
 

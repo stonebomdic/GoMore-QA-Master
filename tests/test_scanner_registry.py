@@ -9,8 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
-
 
 def test_scanners_registry_exposes_api_security():
     from gomore_qa_master.scanners import SCANNERS

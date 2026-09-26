@@ -1,12 +1,12 @@
+from ..config import RUNNER_NAME
 from .base import TestRunner
-from .pytest_playwright import PytestPlaywrightRunner
-from .jest import JestRunner
 from .cypress import CypressRunner
 from .go_test import GoTestRunner
+from .jest import JestRunner
 from .maestro import MaestroRunner
-from .schemathesis import SchemathesisRunner
 from .newman import NewmanRunner
-from ..config import RUNNER_NAME
+from .pytest_playwright import PytestPlaywrightRunner
+from .schemathesis import SchemathesisRunner
 
 REGISTRY: dict[str, type[TestRunner]] = {
     "pytest": PytestPlaywrightRunner,
@@ -34,4 +34,4 @@ def get_runner() -> TestRunner:
     return cls()
 
 
-__all__ = ["TestRunner", "get_runner", "REGISTRY"]
+__all__ = ["REGISTRY", "TestRunner", "get_runner"]

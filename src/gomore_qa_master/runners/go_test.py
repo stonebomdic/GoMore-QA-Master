@@ -1,8 +1,8 @@
 import json
-from .base import TestRunner
+
 from ..config import PROJECT_ROOT, REPORT_PATH
 from ..security import safe_run
-
+from .base import TestRunner
 
 GO_TEMPLATE = '''package main
 

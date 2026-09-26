@@ -31,23 +31,21 @@ import json
 import os
 import re
 import shutil
-import subprocess
 from datetime import datetime
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from .base import TestRunner
 from ..config import (
-    PROJECT_ROOT,
-    REPORT_PATH,
-    JUNIT_PATH,
+    ANDROID_HOST,
     ARTIFACTS_DIR,
     HISTORY_DIR,
-    ANDROID_HOST,
+    JUNIT_PATH,
+    PROJECT_ROOT,
+    REPORT_PATH,
     connect_android_host,
 )
 from ..security import safe_run
-
+from .base import TestRunner
 
 # Default skeleton when the caller has no module info. Mobile equivalent of
 # pytest-playwright's TEST_TEMPLATE — minimal but runnable on `maestro test`.

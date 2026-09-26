@@ -24,9 +24,10 @@ Design notes
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import requests
 
@@ -49,7 +50,7 @@ class Severity(str, Enum):
         # Lower number = more severe. Useful for sorting findings.
         return {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}[self.value]
 
-    def meets(self, threshold: "Severity") -> bool:
+    def meets(self, threshold: Severity) -> bool:
         """True if this finding is at least as severe as the threshold."""
         return self.rank <= threshold.rank
 

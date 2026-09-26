@@ -278,10 +278,14 @@ def test_bola_finding_carries_remediation_hint():
 # stripped text) before drawing ANY conclusion. See the module
 # docstring for the full decision table.
 
-def test_bola_public_content_downgrades_to_info_not_critical():
+def test_bola_public_content_yields_high_not_info():
     """An unauthenticated request gets the SAME content as the actor's
-    — the spec declares auth required but it isn't enforced. That's a
-    `broken_auth` problem, not an object-level one."""
+    — the spec declares auth required but it isn't enforced at all,
+    for ANYONE, not just the actor. This is NOT a dismissal: silently
+    downgrading it to INFO would be a false-negative regression versus
+    the pre-diff design (bare 2xx was at least CRITICAL). It's HIGH —
+    a `broken_auth`-shaped defect, layered under a BOLA probe. Only an
+    explicit `bola_shared_endpoints` declaration gets to INFO."""
     body = '{"id":2,"name":"public catalog entry"}'
     c = _client(
         auth_pair=_pair(),
@@ -297,10 +301,34 @@ def test_bola_public_content_downgrades_to_info_not_critical():
     assert not any(f.severity == Severity.CRITICAL for f in findings)
     public = [f for f in findings if f.rule_id.endswith("-PublicContent")]
     assert len(public) == 1
-    assert public[0].severity == Severity.INFO
+    assert public[0].severity == Severity.HIGH
     assert public[0].evidence["actor_fingerprint"] == public[0].evidence["unauth_fingerprint"]
     assert public[0].evidence["unauth_status_code"] == 200
     assert "authentication" in public[0].title
+    assert "bola_shared_endpoints" in public[0].remediation_hint
+
+
+def test_bola_public_content_declared_shared_still_downgrades_to_info():
+    """The ONLY way a genuinely-public object gets to INFO is an
+    explicit `bola_shared_endpoints` declaration — not the content
+    diff alone. Declaring it wins even over the PublicContent verdict."""
+    body = '{"id":2,"name":"public catalog entry"}'
+    pair = _pair(bola_shared_endpoints=["/orders/*"])
+    c = _client(
+        auth_pair=pair,
+        responses=[
+            _fake_response(status=200, text='{"id":2,"name":"owner-only view"}'),  # owner baseline
+            _fake_response(status=200, text=body),   # actor probe
+            _fake_response(status=200, text=body),   # declared-shared branch's own unauth probe
+            _fake_response(status=200),   # dir2 owner baseline (moot)
+            _fake_response(status=403),   # dir2 actor probe: blocked, quiet
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    assert not any(f.severity in (Severity.CRITICAL, Severity.HIGH) for f in findings)
+    declared = [f for f in findings if f.rule_id.endswith("-DeclaredShared")]
+    assert len(declared) == 1
+    assert declared[0].severity == Severity.INFO
 
 
 def test_bola_scoped_view_when_actor_gets_own_data_back():
@@ -379,10 +407,80 @@ def test_bola_volatile_field_alone_does_not_defeat_leak_detection():
     assert "diff_class" not in crit[0].evidence
 
 
+def test_bola_more_volatile_fields_also_stripped():
+    """trace_id / correlation_id / expires_at / nonce are also
+    stripped — not just timestamp/request_id/server_time/generated_at."""
+    owner_text = ('{"id":2,"item":"bob pizza","trace_id":"aaa","correlation_id":"bbb",'
+                  '"expires_at":"2026-01-01T00:00:00Z","nonce":"111"}')
+    actor_text = ('{"id":2,"item":"bob pizza","trace_id":"zzz","correlation_id":"yyy",'
+                  '"expires_at":"2027-01-01T00:00:00Z","nonce":"999"}')
+    assert _fingerprint(_fake_response(text=owner_text)) == _fingerprint(_fake_response(text=actor_text))
+
+
+def test_bola_unauth_2xx_different_content_treated_as_blocked_real_leak():
+    """unauth gets a 2xx but DIFFERENT content (e.g. a login-page HTML
+    redirect for an unauthenticated browser session) — that still
+    counts as "blocked" for the purposes of this diff: the anonymous
+    caller did NOT get the actor's content. Combined with actor's
+    fingerprint matching the owner's, this is still the real leak
+    signature, not `-PublicContent`."""
+    login_page = "<html><body>Please log in</body></html>"
+    shared_body = '{"id":2,"item":"bob pizza"}'
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text=shared_body),           # owner baseline
+            _fake_response(status=200, text=shared_body),           # actor probe (== owner)
+            _fake_response(status=200, text=login_page),            # unauth: 2xx but DIFFERENT
+            _fake_response(status=200, text='{"id":1,"item":"a"}'),  # actor control
+            _fake_response(status=200),
+            _fake_response(status=403),
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert crit[0].rule_id.endswith("-CrossUserDataExposure")
+    assert crit[0].evidence["unauth_blocked"] is True
+    assert crit[0].evidence["unauth_status_code"] == 200
+    assert not any(f.rule_id.endswith("-PublicContent") for f in findings)
+
+
+def test_bola_partial_leak_subset_of_owner_fields_flagged_ambiguous():
+    """actor's content is a strict SUBSET of the owner's fields (e.g.
+    the endpoint redacts some fields for non-owners but still leaks
+    the rest) — neither byte-identical to the owner's full record nor
+    to the actor's own control, so it lands in the ambiguous bucket
+    for human review rather than being silently dropped or
+    miscategorized as a clean leak/no-leak."""
+    owner_body = ('{"id":2,"item":"bob pizza","email":"bob@example.com",'
+                  '"phone":"555-1234"}')
+    actor_body = '{"id":2,"item":"bob pizza"}'  # strict subset of owner's fields
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text=owner_body),
+            _fake_response(status=200, text=actor_body),
+            _fake_response(status=403),
+            _fake_response(status=200, text='{"id":1,"item":"alice coffee"}'),
+            _fake_response(status=200),
+            _fake_response(status=403),
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert crit[0].rule_id.endswith("-CrossUserDataExposure")
+    assert crit[0].evidence["diff_class"] == "partial_or_volatile"
+
+
 def test_bola_declared_shared_endpoint_downgrades_to_info():
     """`auth.bola_shared_endpoints` is an explicit escape hatch: it
-    overrides whatever the content diff would otherwise conclude."""
-    pair = _pair(bola_shared_endpoints=["/orders/"])
+    overrides whatever the content diff would otherwise conclude.
+    Matching is glob (`fnmatch`) against the WHOLE path, not a
+    substring — "/orders/*" matches "/orders/2", "/orders/" alone
+    would not."""
+    pair = _pair(bola_shared_endpoints=["/orders/*"])
     c = _client(
         auth_pair=pair,
         responses=[
@@ -399,10 +497,76 @@ def test_bola_declared_shared_endpoint_downgrades_to_info():
     assert len(declared) == 1
     assert declared[0].severity == Severity.INFO
     assert declared[0].evidence["declared_shared"] is True
-    assert declared[0].evidence["matched_pattern"] == "/orders/"
+    assert declared[0].evidence["matched_pattern"] == "/orders/*"
     assert "actor_fingerprint" in declared[0].evidence
     assert "owner_fingerprint" in declared[0].evidence
     assert "unauth_fingerprint" in declared[0].evidence
+
+
+def test_bola_shared_endpoints_matching_is_glob_not_substring():
+    """A bare substring pattern with no wildcard does NOT match under
+    `fnmatch` — `bola_shared_endpoints` is glob, matched against the
+    WHOLE path, not "does this substring appear anywhere". This is
+    deliberate: a careless bare-prefix pattern must not silently
+    swallow every path under it."""
+    pair = _pair(bola_shared_endpoints=["/orders/"])  # no wildcard — won't match "/orders/2"
+    c = _client(
+        auth_pair=pair,
+        responses=[
+            _fake_response(status=200, text='{"id":2,"item":"bob pizza"}'),
+            _fake_response(status=200, text='{"id":2,"item":"bob pizza"}'),  # == owner => real leak
+            _fake_response(status=403),
+            _fake_response(status=200, text='{"id":1,"item":"alice coffee"}'),
+            _fake_response(status=200),
+            _fake_response(status=403),
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    assert not any(f.rule_id.endswith("-DeclaredShared") for f in findings)
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert crit[0].rule_id.endswith("-CrossUserDataExposure")
+
+
+def test_bola_declared_shared_wins_over_owner_baseline_failure():
+    """L1: the declared-shared check happens BEFORE the owner-baseline
+    fail-closed check. A declared-shared endpoint must stay INFO even
+    when the owner baseline probe errors out — it must never fall
+    through to the fail-closed CRITICAL path."""
+    pair = _pair(bola_shared_endpoints=["/orders/*"])
+    c = _client(auth_pair=pair)
+    c.request = MagicMock(side_effect=[
+        requests.ConnectionError("boom"),            # dir1 owner baseline blows up
+        _fake_response(status=200, text='{"item":"x"}'),  # dir1 actor probe: 2xx
+        _fake_response(status=403),                    # dir1 declared-shared's own unauth probe
+        _fake_response(status=200),                    # dir2 owner baseline
+        _fake_response(status=403),                    # dir2 actor probe: blocked, quiet
+    ])
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    assert not any(f.severity == Severity.CRITICAL for f in findings)
+    declared = [f for f in findings if f.rule_id.endswith("-DeclaredShared")]
+    assert len(declared) == 1
+    assert declared[0].evidence["owner_fingerprint"] == "unavailable"
+
+
+def test_bola_declared_shared_records_unavailable_when_unauth_probe_fails():
+    """L1: the declared-shared branch's OWN unauth probe erroring out
+    still yields DeclaredShared — with `"unavailable"` recorded rather
+    than propagating the exception or falling back to CRITICAL."""
+    pair = _pair(bola_shared_endpoints=["/orders/*"])
+    c = _client(auth_pair=pair)
+    c.request = MagicMock(side_effect=[
+        _fake_response(status=200, text='{"item":"owner"}'),  # owner baseline
+        _fake_response(status=200, text='{"item":"actor"}'),  # actor probe
+        requests.ConnectionError("boom"),                       # declared-shared's unauth probe blows up
+        _fake_response(status=200),                             # dir2 owner baseline
+        _fake_response(status=403),                             # dir2 actor probe: blocked, quiet
+    ])
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    assert not any(f.severity == Severity.CRITICAL for f in findings)
+    declared = [f for f in findings if f.rule_id.endswith("-DeclaredShared")]
+    assert len(declared) == 1
+    assert declared[0].evidence["unauth_fingerprint"] == "unavailable"
 
 
 # ---- BOLA: fail-closed on probe failures -----------------------------------

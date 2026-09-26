@@ -68,12 +68,38 @@ request ids, ...), and hashes the normalized form (sha256, not md5 —
 md5 is rejected outright under FIPS-mode OpenSSL and buys nothing here
 since this is an equality fingerprint, not a security boundary).
 
-Verdict:
+Declared-shared override (checked FIRST, right after the actor's 2xx —
+before any of the owner/unauth/control probe *results* are judged):
+`AuthPair.bola_shared_endpoints` is a list of glob patterns matched
+whole against `op.path` via `fnmatch.fnmatch` (NOT substrings — see
+`_first_glob_match`). A match always emits INFO `-DeclaredShared`,
+regardless of what the owner/unauth probes come back with — including
+if they error or come back non-2xx, which is recorded as
+`"unavailable"` in evidence rather than tripping the fail-closed
+CRITICAL path below. It's an explicit escape hatch for resources a
+human has already confirmed are intentionally shared (read-shared,
+write-owned resources are the classic case) — narrower than silently
+trusting "content happened to match."
 
-  - unauth got 2xx AND fingerprint == actor's        → INFO
-    `-PublicContent`. Nobody needed a token to read this — the spec's
-    `security` declaration isn't enforced. That's a `broken_auth`
-    finding, not an object-level one.
+Endpoints that are shared to any logged-in user but NOT to anonymous
+callers are the one shape this diff genuinely can't distinguish from a
+real per-owner leak by content alone (both look like "actor ==
+owner"). `bola_shared_endpoints` is the intended way to declare those
+out; `bola_test_ids` must otherwise map to objects that really are
+private per-user, or expect `-CrossUserDataExposure` on them.
+
+Verdict (only reached when `op.path` does NOT match a declared-shared
+pattern):
+
+  - unauth got 2xx AND fingerprint == actor's        → **HIGH**
+    `-PublicContent`. This is NOT a dismissal: the spec declares auth
+    required and it isn't enforced at all — anyone, not just the
+    actor, can read this object. That's a `broken_auth`-shaped defect
+    layered under a BOLA probe, and treating it as low-severity would
+    be a regression versus the pre-diff design (which was at least
+    CRITICAL on bare 2xx). If this object is genuinely meant to be
+    public, declare it via `bola_shared_endpoints` instead — THAT is
+    the only path to an INFO verdict here.
   - unauth was blocked (non-2xx, OR 2xx with different content) AND
     actor's fingerprint == owner's                    → CRITICAL
     `-CrossUserDataExposure`. This is the real signature of a leak:
@@ -99,21 +125,12 @@ Verdict:
     we never even confirmed a hit, so it stays an INFO `-ProbeFailed`,
     same as before this redesign.)
 
-Declared-shared override: `AuthPair.bola_shared_endpoints` is a list of
-path substrings (same matching as `fla_admin_paths`). If `op.path`
-matches, the whole verdict above is skipped once the first three
-probes are in: this always emits INFO `-DeclaredShared`, carrying the
-three fingerprints as evidence. It's an explicit escape hatch for
-resources a human has already confirmed are intentionally shared
-(read-shared, write-owned resources are the classic case) — narrower
-than silently trusting "content happened to match."
-
-Endpoints that are shared to any logged-in user but NOT to anonymous
-callers are the one shape this diff genuinely can't distinguish from a
-real per-owner leak by content alone (both look like "actor ==
-owner"). `bola_shared_endpoints` is the intended way to declare those
-out; `bola_test_ids` must otherwise map to objects that really are
-private per-user, or expect `-CrossUserDataExposure` on them.
+Known limitation: `APIClient` doesn't set `requests`' `trust_env=False`,
+so a `~/.netrc` entry for the target host could inject credentials
+into the "unauthenticated" probe (#3) and defeat it. Not fixing this
+by disabling `trust_env` — that also turns off environment-configured
+proxy support, which isn't a worthwhile trade for closing a local-
+machine-config edge case.
 
 Discovery strategy decision (PRD §7.3)
 --------------------------------------
@@ -142,6 +159,7 @@ on multi-param paths so users know they were skipped.
 """
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import re
@@ -163,7 +181,23 @@ _SAFE_REPLAY_METHODS = ("GET", "HEAD")
 # fields turn up in real specs.
 _VOLATILE_JSON_FIELDS = frozenset({
     "timestamp", "request_id", "server_time", "generated_at",
+    "trace_id", "correlation_id", "expires_at", "nonce",
 })
+
+
+def _first_glob_match(path: str, patterns: list[str]) -> str | None:
+    """First pattern in `patterns` that `fnmatch.fnmatch`-matches the
+    WHOLE `path` — used for `bola_shared_endpoints`. Deliberately glob
+    (`fnmatch`), not substring: a substring match on a bare "/" or "*"
+    pattern would silently match every path in the scan, and BOLA's
+    runner-side validation (see `runners.api_security.run_scan`)
+    rejects non-string / empty entries but can't catch "technically a
+    valid pattern that matches everything" — glob at least makes the
+    intent explicit and greppable in the config."""
+    for p in patterns:
+        if fnmatch.fnmatch(path, p):
+            return p
+    return None
 
 
 def _count_path_params(path: str) -> int:
@@ -364,6 +398,47 @@ class BOLARule:
             "response_body_preview": _truncate(actor_resp.text, 500),
         }
 
+        # ---- Declared-shared override — checked FIRST, right after the ----
+        # actor's 2xx, before any owner/unauth probe RESULT is judged. An
+        # explicit user declaration must win even if the owner baseline or
+        # unauth probe subsequently errors — a declared-shared endpoint
+        # must never fall through to the fail-closed CRITICAL paths below.
+        # Fingerprints that can't be obtained are recorded as the literal
+        # string "unavailable" rather than causing this branch to bail.
+        matched_pattern = _first_glob_match(op.path, shared_patterns)
+        if matched_pattern is not None:
+            actor_fp = _fingerprint(actor_resp)
+            owner_fp = ("unavailable" if owner_unavailable is not None
+                        else _fingerprint(owner_resp))
+            try:
+                unauth_resp_ds = client.request("GET", request_path, token=None)
+            except Exception:
+                unauth_fp = "unavailable"
+            else:
+                unauth_fp = (_fingerprint(unauth_resp_ds)
+                             if 200 <= unauth_resp_ds.status_code < 300 else "unavailable")
+            return [Finding(
+                rule_id=f"{self.id}-DeclaredShared",
+                severity=Severity.INFO,
+                endpoint=endpoint,
+                title=(f"{target_owner_label}'s object id={target_id} is declared shared "
+                       f"via `auth.bola_shared_endpoints` — skipping BOLA judgement"),
+                evidence={
+                    **base_evidence,
+                    "actor_fingerprint": actor_fp,
+                    "owner_fingerprint": owner_fp,
+                    "unauth_fingerprint": unauth_fp,
+                    "declared_shared": True,
+                    "matched_pattern": matched_pattern,
+                },
+                remediation_hint=(
+                    "This path matched an entry in `auth.bola_shared_endpoints`, so "
+                    "it's treated as an intentionally shared resource and not judged "
+                    "for object-level authorization. Remove it from that list (or "
+                    "narrow the pattern) if it should actually be gated per-owner."
+                ),
+            )]
+
         if owner_unavailable is not None:
             return [Finding(
                 rule_id=f"{self.id}-CrossUserDataExposure",
@@ -395,37 +470,18 @@ class BOLARule:
         unauth_fp = _fingerprint(unauth_resp) if unauth_2xx else None
         unauth_public = unauth_2xx and unauth_fp == actor_fp
 
-        # ---- Declared-shared override --------------------------------------
-        # Checked once the first 3 probes are in (that's the "three
-        # fingerprints" this finding's evidence carries) — an explicit
-        # user declaration overrides whatever the diff below would say.
-        if _matches_admin_pattern(op.path, shared_patterns):
-            return [Finding(
-                rule_id=f"{self.id}-DeclaredShared",
-                severity=Severity.INFO,
-                endpoint=endpoint,
-                title=(f"{target_owner_label}'s object id={target_id} is declared shared "
-                       f"via `auth.bola_shared_endpoints` — skipping BOLA judgement"),
-                evidence={
-                    **base_evidence,
-                    "actor_fingerprint": actor_fp,
-                    "owner_fingerprint": owner_fp,
-                    "unauth_fingerprint": unauth_fp,
-                    "declared_shared": True,
-                    "matched_pattern": next((p for p in shared_patterns if p in op.path), ""),
-                },
-                remediation_hint=(
-                    "This path matched an entry in `auth.bola_shared_endpoints`, so "
-                    "it's treated as an intentionally shared resource and not judged "
-                    "for object-level authorization. Remove it from that list (or "
-                    "narrow the pattern) if it should actually be gated per-owner."
-                ),
-            )]
-
         if unauth_public:
+            # NOT a dismissal — HIGH, not INFO. The spec declares auth
+            # required and it isn't enforced at all: anyone, not just
+            # the actor, can read this object. Silently downgrading
+            # this to INFO would be a false-negative regression versus
+            # the pre-diff design (which was at least CRITICAL on bare
+            # 2xx). If this object is genuinely meant to be public, the
+            # only path to an INFO verdict is declaring it via
+            # `bola_shared_endpoints` (checked above).
             return [Finding(
                 rule_id=f"{self.id}-PublicContent",
-                severity=Severity.INFO,
+                severity=Severity.HIGH,
                 endpoint=endpoint,
                 title=(f"Object id={target_id} at this endpoint is readable without "
                        f"authentication — the spec's declared auth requirement isn't "
@@ -439,10 +495,13 @@ class BOLARule:
                 remediation_hint=(
                     "An unauthenticated request returned the same content as an "
                     "authenticated one, even though the spec declares `security` on "
-                    "this operation. This isn't an object-level authorization gap "
-                    "(anyone can read it, owner or not) — track it under the "
-                    "`broken_auth` category instead, since the real defect is that "
-                    "auth enforcement is missing entirely."
+                    "this operation. Enforce authentication on this endpoint — track "
+                    "it under `broken_auth` as well, since the underlying defect is "
+                    "that auth enforcement is missing entirely, not merely that "
+                    "object ownership isn't checked. If this object is genuinely "
+                    "meant to be public, add its path to "
+                    "`auth.bola_shared_endpoints` to declare that intentionally "
+                    "instead of leaving this HIGH finding unresolved."
                 ),
             )]
 

@@ -105,6 +105,76 @@ def test_run_scan_blocks_unauthorized_host(monkeypatch, tmp_path):
     assert result["host"] == "external.example.com"
 
 
+# ---- auth: bola_shared_endpoints wiring ----------------------------------
+#
+# `auth.bola_shared_endpoints` is validated eagerly when building the
+# `AuthPair` (before it ever reaches `security_rules.bola`): it must be
+# a list of non-empty strings (glob patterns), or the scan refuses
+# with `bad_bola_shared_endpoints` rather than silently misbehaving —
+# a bare string would iterate character-by-character as 1-char glob
+# patterns, and a stray entry could `fnmatch` every path in the scan.
+
+def test_run_scan_accepts_valid_bola_shared_endpoints(with_consent, spec_file):
+    result = run_scan(
+        spec_file, base_url="http://localhost:1",
+        auth={
+            "token": "alice-token",
+            "alt_user_token": "bob-token",
+            "bola_shared_endpoints": ["/foo/*", "/secure"],
+        },
+    )
+    assert "error" not in result
+    assert result["ops_scanned"] == 2
+
+
+def test_run_scan_accepts_missing_bola_shared_endpoints(with_consent, spec_file):
+    """Omitting the key entirely is fine — it's optional."""
+    result = run_scan(
+        spec_file, base_url="http://localhost:1",
+        auth={"token": "alice-token", "alt_user_token": "bob-token"},
+    )
+    assert "error" not in result
+
+
+def test_run_scan_rejects_bare_string_bola_shared_endpoints(with_consent, spec_file):
+    """A bare string (not a list) is rejected — passed through
+    unchecked it would iterate character-by-character as 1-char glob
+    patterns and silently mute BOLA."""
+    result = run_scan(
+        spec_file, base_url="http://localhost:1",
+        auth={
+            "token": "alice-token",
+            "alt_user_token": "bob-token",
+            "bola_shared_endpoints": "/foo/",
+        },
+    )
+    assert result["error"] == "bad_bola_shared_endpoints"
+
+
+def test_run_scan_rejects_non_string_entry_in_bola_shared_endpoints(with_consent, spec_file):
+    result = run_scan(
+        spec_file, base_url="http://localhost:1",
+        auth={
+            "token": "alice-token",
+            "alt_user_token": "bob-token",
+            "bola_shared_endpoints": ["/foo/*", 123],
+        },
+    )
+    assert result["error"] == "bad_bola_shared_endpoints"
+
+
+def test_run_scan_rejects_empty_string_entry_in_bola_shared_endpoints(with_consent, spec_file):
+    result = run_scan(
+        spec_file, base_url="http://localhost:1",
+        auth={
+            "token": "alice-token",
+            "alt_user_token": "bob-token",
+            "bola_shared_endpoints": ["/foo/*", "   "],
+        },
+    )
+    assert result["error"] == "bad_bola_shared_endpoints"
+
+
 # ---- spec loader --------------------------------------------------------
 
 def test_load_spec_json_file(spec_file):

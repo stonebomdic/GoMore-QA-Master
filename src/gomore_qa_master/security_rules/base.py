@@ -121,25 +121,34 @@ class AuthPair:
     Function Level Authz rule probes these with the LOW-priv token
     (user_a) — a 2xx response is the API5 finding.
 
-    `bola_shared_endpoints`: substrings against `op.path` (same
-    matching as `fla_admin_paths`) declaring an endpoint as an
-    intentionally shared resource — e.g. read-shared, write-owned
-    content where "actor sees the same thing the nominal owner would"
-    is expected, not a bug. BOLA's 4-probe diff (see
-    `security_rules.bola` module docstring) can't distinguish that
-    shape from a real per-owner leak by content alone when the
-    resource is shared to any logged-in user but not to anonymous
-    callers; declaring it here short-circuits straight to an INFO
-    `-DeclaredShared` finding instead of CRITICAL. `bola_test_ids`
+    `bola_shared_endpoints`: GLOB patterns (`fnmatch.fnmatch`, matched
+    against the WHOLE `op.path` — NOT substrings, unlike
+    `fla_admin_paths`) declaring an endpoint as an intentionally shared
+    resource — e.g. read-shared, write-owned content where "actor sees
+    the same thing the nominal owner would" is expected, not a bug.
+    BOLA's 4-probe diff (see `security_rules.bola` module docstring)
+    can't distinguish that shape from a real per-owner leak by content
+    alone when the resource is shared to any logged-in user but not to
+    anonymous callers; declaring it here short-circuits straight to an
+    INFO `-DeclaredShared` finding instead of CRITICAL. `bola_test_ids`
     must otherwise map to objects that really are private per-user.
+
+    The runner (`runners.api_security.run_scan`) validates this eagerly
+    when built from the `auth` dict: it must be a list of non-empty
+    strings, or the scan refuses with an error rather than silently
+    misbehaving. A bare string here (instead of a list) would iterate
+    character-by-character as 1-char glob patterns; a stray `"/"` or
+    `"*"` pattern would `fnmatch` every path in the scan and silently
+    mute BOLA across the whole run — both are configuration mistakes
+    worth failing loudly on, not corner cases to shrug off.
     """
     user_a_token: str
     user_b_token: str
     # {"user_a": [1, 3], "user_b": [2]} — ids of objects each user owns.
     # Required for the BOLA rule; FLA rule doesn't use this.
     bola_test_ids: dict[str, list[int]] | None = None
-    # Path substrings declaring an endpoint as intentionally shared —
-    # see the docstring above. Empty/None = no declared exceptions.
+    # Glob patterns declaring an endpoint as intentionally shared — see
+    # the docstring above. Empty/None = no declared exceptions.
     bola_shared_endpoints: list[str] = field(default_factory=list)
     # Substring matches against the OpenAPI path. Default below if None.
     fla_admin_paths: list[str] | None = None

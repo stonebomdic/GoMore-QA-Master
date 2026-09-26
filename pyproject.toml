@@ -42,6 +42,11 @@ Repository = "git+https://github.com/stonebomdic/GoMore-QA-Master.git"
 [project.scripts]
 gomore-qa-master = "gomore_qa_master.server:run"
 
+[tool.pytest.ini_options]
+# src layout：讓 tests/ 不依賴 editable install 的 .pth（uv 管理的 CPython
+# 不吃 editable .pth，POC Phase 0 與 2026-09-26 均實測踩到）。
+pythonpath = ["src"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

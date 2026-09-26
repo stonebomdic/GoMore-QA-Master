@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -99,6 +100,11 @@ def _require_schemathesis_cli() -> str:
             "schemathesis is not installed. Install with: "
             "pip install 'gomore-qa-master[api]'"
         ) from e
+    # MCP server 行程的 PATH 通常不含 venv bin（Phase 5 實測），先找當前
+    # 直譯器旁邊的 CLI，再退回 PATH 查找。
+    venv_cli = Path(sys.executable).parent / "schemathesis"
+    if venv_cli.is_file():
+        return str(venv_cli)
     cli = shutil.which("schemathesis")
     if not cli:
         raise ImportError(

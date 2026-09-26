@@ -14,6 +14,7 @@ from .config import OPTIMIZATION_PATH, REPORT_PATH
 from .reporters import html as html_reporter
 from .runners import REGISTRY as RUNNER_REGISTRY
 from .runners import get_runner
+from .runners.pytest_playwright import _is_positive_description
 from .tools import (
     analyzer,
     generator,
@@ -301,11 +302,21 @@ register("qa_plan", _h_qa_plan, blocking=True)
 register("verify_plan", _h_verify_plan, blocking=True)
 
 
+# Common tracking/analytics endpoints — never the form's own submit target,
+# but frequently POST and same-host, so they'd otherwise win the "first
+# same-host POST/PUT" heuristic below and produce a nonsense assertion
+# (review round 2, minor #5).
+_ANALYTICS_PATH_HINTS = ("/collect", "/track", "/beacon", "/analytics")
+
+
 def _pick_form_api(url: str, module: dict, endpoints: list[dict]) -> dict | None:
     """Best-effort match of a form module to the API call it most likely
-    submits to: the first same-origin POST/PUT endpoint seen while the page
-    loaded. Feeds `module["api"]` so the runner can render a real
-    response-status assertion instead of a TODO stub (POC F-1 defect #3).
+    submits to: the first same-host (exact hostname match — not full origin;
+    doesn't compare scheme/port, so this alone doesn't distinguish http vs
+    https or non-default ports on the same host) POST/PUT endpoint seen
+    while the page loaded, skipping obvious analytics/tracking calls. Feeds
+    `module["api"]` so the runner can render a real response-status
+    assertion instead of a TODO stub (POC F-1 defect #3).
 
     Heuristic, not causal: `endpoints` are captured on page LOAD, not on
     actual form submit, so a match is a hint, and no match just means no
@@ -315,9 +326,35 @@ def _pick_form_api(url: str, module: dict, endpoints: list[dict]) -> dict | None
         return None
     origin = urlparse(url).hostname
     for ep in endpoints:
-        if ep.get("method") in ("POST", "PUT") and ep.get("host") == origin:
-            return {"method": ep["method"], "url_substring": ep.get("path") or ep.get("url")}
+        if ep.get("method") not in ("POST", "PUT") or ep.get("host") != origin:
+            continue
+        path = ep.get("path") or ""
+        if any(hint in path for hint in _ANALYTICS_PATH_HINTS):
+            continue
+        return {"method": ep["method"], "url_substring": path or ep.get("url")}
     return None
+
+
+def _select_candidate_tcs(candidates: list[str], limit: int) -> list[str]:
+    """First `limit` TCs, but guarantee a happy-path TC is among them when
+    one exists in `candidates`.
+
+    Why: the analyzer's form TCs always start with the "所有必填欄位為空"
+    negative case (tools/analyzer.py:305), so with the default
+    tests_per_module=1 the happy-path TC — the only one that can trigger
+    `_render_form_test`'s real API-status assertion — was never selected
+    (review round 2, major #3). Swaps the last selected slot for the first
+    positive TC found; a no-op when one is already selected or none exists.
+    """
+    if limit <= 0 or not candidates:
+        return list(candidates[:limit])
+    selected = list(candidates[:limit])
+    if any(_is_positive_description(tc) for tc in selected):
+        return selected
+    happy = next((tc for tc in candidates if _is_positive_description(tc)), None)
+    if happy is not None:
+        selected[-1] = happy
+    return selected
 
 
 async def _auto_generate_tests(
@@ -347,7 +384,7 @@ async def _auto_generate_tests(
         module_for_gen = {**module, "api": module_api} if module_api else module
         candidates = module.get("candidate_tcs", []) or []
         module_name = module.get("name", "module")
-        for i, tc in enumerate(candidates[:tests_per_module]):
+        for i, tc in enumerate(_select_candidate_tcs(candidates, tests_per_module)):
             slug = f"{module_name}_{i}" if i > 0 else module_name
             try:
                 generator.generate_test(

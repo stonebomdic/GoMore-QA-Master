@@ -96,12 +96,40 @@ _SAMPLE_VALUES = {
 # regardless of analyzer correctness (POC F-1 defect #1).
 _NON_FILLABLE_FIELD_TYPES = frozenset({"button", "submit", "reset", "hidden", "image"})
 
-# Keywords (bilingual) that mark a description as the "submit while empty /
-# missing required field" scenario rather than the happy-path fill flow. A
-# fill-everything body under one of these descriptions previously contradicted
-# the stated intent (POC F-1 defect #2).
+# Multi-character phrases (bilingual) that mark a description as the
+# "submit while all required fields are empty" scenario. Deliberately whole
+# phrases, not bare "空"/"blank" — those single tokens false-positive on
+# unrelated descriptions like "清空購物車" or "Blank page check" (review
+# round 2, minor #7).
 _EMPTY_SUBMIT_KEYWORDS = re.compile(
-    r"(空|未填|留空|empty|blank|without filling)", re.IGNORECASE
+    r"(為空|留空|未填|空白送出|empty submit|without filling|leave blank)",
+    re.IGNORECASE,
+)
+
+# The analyzer's fixed TC template for "leave exactly one required field
+# empty, fill the rest" (tools/analyzer.py:308 — `f"只填其他欄位、{label}
+# 留空，應顯示該欄位必填錯誤"`). Parsed here (not in the analyzer) because
+# only the runner knows how to turn "which field" into "which fill to skip".
+_SINGLE_FIELD_EMPTY_PATTERN = re.compile(r"只填其他欄位、(.+?)\s*留空")
+
+# Bilingual "this description reads as a happy-path / success scenario"
+# phrases. Kept deliberately narrow: an assertion that asserts success only
+# gets attached when the description is unambiguously positive — anything
+# ambiguous or negative-sounding falls back to the TODO stub instead of
+# guessing (review round 2, major #1: "寧缺勿錯").
+_POSITIVE_KEYWORDS = re.compile(
+    r"(全部填入合法值|全部填寫正確|填寫正確|填入正確|觸發成功|成功流程|成功訊息|"
+    r"happy path|happy-path)",
+    re.IGNORECASE,
+)
+
+# Any of these override a positive-keyword match — a TC can mention "成功"
+# while still being a negative case, e.g. "應顯示錯誤" text sitting right
+# next to it in the analyzer's own template strings never happens, but user-
+# authored descriptions might mix both. Negative wins on conflict.
+_NEGATIVE_KEYWORDS = re.compile(
+    r"(錯誤|失敗|不合法|不符合|太短|過長|invalid|error|fail(?:ure|ed)?|reject)",
+    re.IGNORECASE,
 )
 
 
@@ -109,6 +137,39 @@ def _is_empty_submit_description(description: str | None) -> bool:
     """True when `description` reads as an empty-submit / missing-required-
     field scenario rather than the happy-path fill flow."""
     return bool(_EMPTY_SUBMIT_KEYWORDS.search(description or ""))
+
+
+def _extract_single_empty_label(description: str | None) -> str | None:
+    """Pull `{label}` out of the analyzer's "只填其他欄位、{label} 留空" TC
+    template. Returns None when the description doesn't match that exact
+    shape (POC review round 2, major #2)."""
+    if not description:
+        return None
+    m = _SINGLE_FIELD_EMPTY_PATTERN.search(description)
+    if not m:
+        return None
+    return m.group(1).strip() or None
+
+
+def _is_positive_description(description: str | None) -> bool:
+    """True only when `description` unambiguously reads as a happy-path /
+    success scenario. Negative keywords always win over positive ones, and
+    anything that matches neither is treated as *not* positive — a missing
+    assertion beats one that asserts the wrong thing (POC review round 2,
+    major #1)."""
+    text = description or ""
+    if _NEGATIVE_KEYWORDS.search(text):
+        return False
+    return bool(_POSITIVE_KEYWORDS.search(text))
+
+
+def _sanitize_docstring_text(text: str) -> str:
+    """Make `text` safe to interpolate into a `\"\"\"...\"\"\"` module
+    docstring literal. `text` comes from analyzer/user input, not a trusted
+    constant, so a stray `\"\"\"` or backslash could otherwise break out of
+    the string literal and corrupt the generated file (review round 2,
+    minor #8)."""
+    return text.replace("\\", "/").replace('"""', "'''")
 
 
 class PytestPlaywrightRunner(TestRunner):
@@ -470,17 +531,54 @@ class PytestPlaywrightRunner(TestRunner):
             and f.get("selector") != submit
         ]
 
-        # F-1 缺陷 2：描述寫「留空/empty」但程式仍先填值，body 與描述矛盾。
-        # 偵測到這類關鍵字時改渲染 empty-submit 變體：跳過所有 fill，直接送出。
-        empty_submit = _is_empty_submit_description(description)
-        variant = "empty-submit" if empty_submit else "happy-path"
+        # --- 判斷這個 description 要渲染哪一種變體 ------------------------
+        # F-1 缺陷 2 + review round 2 major #2：analyzer 除了「全部留空」，
+        # 還有「只填其他欄位、{label} 留空」這種單一欄位留空的 TC 模板
+        # （tools/analyzer.py:308）。後者之前被通用關鍵字（「留空」）誤判成
+        # 整份表單留空，這裡先做更精確的比對：解析出 {label}，只跳過對應
+        # 的那個欄位；label 對不到任何已知欄位時才 fallback 為全部留空，
+        # 並在產出裡註明是 fallback（不是 TC 本意）。
+        single_empty_label = _extract_single_empty_label(description)
+        skip_selector: str | None = None
+        fallback_note: str | None = None
+        if single_empty_label is not None:
+            target = next(
+                (
+                    f for f in fields
+                    if (f.get("label") or "").strip() == single_empty_label
+                    or f.get("selector") == single_empty_label
+                ),
+                None,
+            )
+            if target is not None:
+                variant = "single-field-empty"
+                skip_selector = target["selector"]
+            else:
+                variant = "empty-submit"
+                fallback_note = single_empty_label
+        elif _is_empty_submit_description(description):
+            variant = "empty-submit"
+        else:
+            variant = "happy-path"
 
-        if empty_submit:
+        # empty-submit / single-field-empty 都是「預期失敗」的負向情境：
+        # 不該附上成功斷言，送出後只留錯誤提示的 TODO。
+        negative_variant = variant in ("empty-submit", "single-field-empty")
+
+        if variant == "empty-submit":
             fills_body = "    # empty-submit variant：刻意跳過所有 fill，驗證必填提示"
+            if fallback_note:
+                fills_body += (
+                    f"\n    # 注意：TC 提及的欄位「{fallback_note}」未對應到任何已知欄位，"
+                    "fallback 為全部留空"
+                )
         else:
             fill_lines: list[str] = []
             for f in fields:
                 s = f["selector"]
+                if variant == "single-field-empty" and s == skip_selector:
+                    fill_lines.append(f"    # 依 TC 指示留空：{single_empty_label}")
+                    continue
                 kind = (f.get("type") or "").lower()
                 if kind == "select":
                     fill_lines.append(f"    page.locator({s!r}).select_option(index=1)")
@@ -491,20 +589,35 @@ class PytestPlaywrightRunner(TestRunner):
                     fill_lines.append(f"    page.locator({s!r}).fill({value!r})")
             fills_body = "\n".join(fill_lines) if fill_lines else "    # No fillable fields detected"
 
-        # F-1 缺陷 3：happy-path 且帶 module["api"]（analyze_url 附上的相關 API
-        # call）時，改產出真實斷言——等對應 response 進來並檢查狀態碼，而不是
-        # 留一個空的 TODO 註解。
+        # --- submit + 斷言 -------------------------------------------------
+        # F-1 缺陷 3 + review round 2 major #1 / minor #6：happy-path 且帶
+        # module["api"] 時，改產出真實斷言——但只在 (a) 非負向變體、
+        # (b) description 明確讀作正向／成功情境、(c) url_substring 夠具體
+        # （不是幾乎恆真的 "/"）三者都成立時才附加，避免對「Email 格式錯誤
+        # 應顯示錯誤」這類負向 TC 誤掛「status < 400」成功斷言。
         api = module.get("api") if isinstance(module.get("api"), dict) else None
+        url_substring = str(api.get("url_substring") or "") if api else ""
+        can_assert_api = (
+            not negative_variant
+            and api is not None
+            and url_substring not in ("", "/")
+            and _is_positive_description(description)
+        )
+
         if not submit:
             submit_body = "    # No submit button detected"
-        elif empty_submit:
+        elif negative_variant:
             submit_body = f"    page.locator({submit!r}).click()"
-        elif api and api.get("url_substring"):
-            # json.dumps gives a double-quoted, escaped literal matching the
-            # approved design's example verbatim.
-            url_substring_literal = json.dumps(str(api["url_substring"]))
+        elif can_assert_api:
+            method = str(api.get("method") or "POST").upper()
+            # json.dumps(..., ensure_ascii=False) gives a double-quoted,
+            # escaped literal matching the approved design's example
+            # verbatim, without mangling non-ASCII path segments.
+            url_substring_literal = json.dumps(url_substring, ensure_ascii=False)
             submit_body = (
-                f"    with page.expect_response(lambda r: {url_substring_literal} in r.url) as _resp:\n"
+                "    with page.expect_response(\n"
+                f"        lambda r: r.request.method == {method!r} and {url_substring_literal} in r.url\n"
+                "    ) as _resp:\n"
                 f"        page.locator({submit!r}).click()\n"
                 "    assert _resp.value.status < 400"
             )
@@ -520,11 +633,11 @@ class PytestPlaywrightRunner(TestRunner):
         # actually produced — that's what kills the description/body mismatch.
         bc = self._business_context_block(business_context)
 
-        if empty_submit:
+        if negative_variant:
             assertion_block = (
                 '    # TODO: 斷言錯誤提示，例如 expect(page.get_by_text("必填")).to_be_visible()\n'
             )
-        elif api and api.get("url_substring"):
+        elif can_assert_api:
             # 斷言已經內嵌在 submit_body 的 expect_response 區塊裡。
             assertion_block = ""
         else:
@@ -534,8 +647,9 @@ class PytestPlaywrightRunner(TestRunner):
                 '    # expect(page.get_by_text("成功")).to_be_visible()\n'
             )
 
+        module_label = _sanitize_docstring_text(str(module.get("name", "(unnamed)")))
         return (
-            f'"""Auto-generated from analyze_url module: {module.get("name", "(unnamed)")} '
+            f'"""Auto-generated from analyze_url module: {module_label} '
             f'(kind=form, variant={variant})"""\n'
             "from playwright.sync_api import Page, expect\n\n\n"
             f"def test_{slug}(page: Page):\n"
@@ -557,8 +671,9 @@ class PytestPlaywrightRunner(TestRunner):
         tc_block = "\n".join(f"    # TC: {tc}" for tc in tcs[:3])
         goto_url = url or "https://example.com"
         bc = self._business_context_block(business_context)
+        module_label = _sanitize_docstring_text(str(module.get("name", "(unnamed)")))
         return (
-            f'"""Auto-generated from analyze_url module: {module.get("name", "(unnamed)")} (kind={kind})"""\n'
+            f'"""Auto-generated from analyze_url module: {module_label} (kind={kind})"""\n'
             "from playwright.sync_api import Page, expect\n\n\n"
             f"def test_{slug}(page: Page):\n"
             f"    {description!r}\n"

@@ -519,6 +519,119 @@ def test_generate_test_generic_module_renders_container(runner, monkeypatch, tmp
     assert "#cart" in content
 
 
+# ---- _render_form_test — P3 生成品質修復 ------------------------------------
+# POC 附錄 F-1 實測缺陷：(1) 送出按鈕誤被當欄位 fill() 而炸掉、
+# (2) empty-submit 描述卻仍先填值（描述與 body 矛盾）、(3) 只有 TODO 無真斷言。
+
+
+def test_generate_test_form_filters_button_type_fields(runner, monkeypatch, tmp_path):
+    """analyzer 可能把 submit/button 誤放進 fields —— 模板端要防禦性過濾，
+    不然會對送出按鈕呼叫 .fill() 直接炸掉（F-1 缺陷 1）。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [
+                {"selector": "#email", "type": "email"},
+                {"selector": "#go", "type": "SUBMIT"},  # 大小寫不敏感
+                {"selector": "#reset-btn", "type": "reset"},
+                {"selector": "#hidden-token", "type": "hidden"},
+                {"selector": "#submit", "type": "text"},  # 與 submit 選擇器同一個
+            ],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test("使用者登入", "test_login.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_login.py").read_text()
+    assert "page.locator('#email').fill(" in content
+    assert "'#go'" not in content
+    assert "'#reset-btn'" not in content
+    assert "'#hidden-token'" not in content
+    # 唯一允許出現 #submit 的地方是 submit click，不應該再對它呼叫 .fill()
+    assert "page.locator('#submit').fill(" not in content
+    assert "page.locator('#submit').click()" in content
+
+
+def test_generate_test_form_empty_submit_variant_chinese_keyword(runner, monkeypatch, tmp_path):
+    """描述含「留空」等關鍵字 → 改渲染 empty-submit 變體：不 fill、直接 click，
+    且 module docstring 要標出 variant，避免描述與 body 矛盾（F-1 缺陷 2）。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test("欄位留空時送出", "test_login_empty.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_login_empty.py").read_text()
+    assert "page.locator('#email').fill(" not in content
+    assert "page.locator('#submit').click()" in content
+    assert "variant=empty-submit" in content
+    assert "斷言錯誤提示" in content
+
+
+def test_generate_test_form_empty_submit_variant_english_keyword(runner, monkeypatch, tmp_path):
+    """英文關鍵字（大小寫不敏感）一樣要觸發 empty-submit 變體。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test(
+        "Submit WITHOUT FILLING required fields", "test_login_blank.py",
+        url="https://x.test", module=module,
+    )
+    content = (tmp_path / "test_login_blank.py").read_text()
+    assert "page.locator('#email').fill(" not in content
+    assert "page.locator('#submit').click()" in content
+    assert "variant=empty-submit" in content
+
+
+def test_generate_test_form_happy_path_renders_api_response_assertion(runner, monkeypatch, tmp_path):
+    """module['api'] 存在時，happy-path 變體要產出真實斷言：等待對應 API
+    response 並檢查狀態碼，而不是留一個空 TODO（F-1 缺陷 3）。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+        "api": {"method": "POST", "url_substring": "/api/login"},
+    }
+    runner.generate_test("使用者登入", "test_login_api.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_login_api.py").read_text()
+    assert 'page.expect_response(lambda r: "/api/login" in r.url)' in content
+    assert "assert _resp.value.status < 400" in content
+    assert "page.locator('#submit').click()" in content
+    assert "TODO: 補上實際斷言" not in content
+
+
+def test_generate_test_form_happy_path_fallback_todo_without_api(runner, monkeypatch, tmp_path):
+    """沒有 module['api'] 時，維持現行 TODO fallback，不硬湊斷言。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test("使用者登入", "test_login_noapi.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_login_noapi.py").read_text()
+    assert "TODO: 補上實際斷言" in content
+    assert "page.expect_response" not in content
+
+
 def test_business_context_block_empty_when_blank(runner):
     assert runner._business_context_block(None) == ""
     assert runner._business_context_block("   ") == ""

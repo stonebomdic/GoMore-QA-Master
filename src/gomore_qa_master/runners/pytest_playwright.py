@@ -90,6 +90,26 @@ _SAMPLE_VALUES = {
     "date": "2026-01-01",
 }
 
+# Field `type`s that are never fillable inputs — the analyzer sometimes mis-
+# classifies a submit/reset button as a regular field, which used to render a
+# `.fill()` call against a button and crash on run. Filtered defensively here
+# regardless of analyzer correctness (POC F-1 defect #1).
+_NON_FILLABLE_FIELD_TYPES = frozenset({"button", "submit", "reset", "hidden", "image"})
+
+# Keywords (bilingual) that mark a description as the "submit while empty /
+# missing required field" scenario rather than the happy-path fill flow. A
+# fill-everything body under one of these descriptions previously contradicted
+# the stated intent (POC F-1 defect #2).
+_EMPTY_SUBMIT_KEYWORDS = re.compile(
+    r"(空|未填|留空|empty|blank|without filling)", re.IGNORECASE
+)
+
+
+def _is_empty_submit_description(description: str | None) -> bool:
+    """True when `description` reads as an empty-submit / missing-required-
+    field scenario rather than the happy-path fill flow."""
+    return bool(_EMPTY_SUBMIT_KEYWORDS.search(description or ""))
+
 
 class PytestPlaywrightRunner(TestRunner):
     name = "pytest-playwright"
@@ -438,35 +458,85 @@ class PytestPlaywrightRunner(TestRunner):
 
     def _render_form_test(self, description: str, slug: str, url: str | None, module: dict, business_context: str | None = None) -> str:
         sel = module.get("selectors") or {}
-        fields = sel.get("fields") or []
+        raw_fields = sel.get("fields") or []
         submit = sel.get("submit")
-        fill_lines: list[str] = []
-        for f in fields:
-            s = f.get("selector")
-            if not s:
-                continue
-            kind = (f.get("type") or "").lower()
-            if kind == "select":
-                fill_lines.append(f"    page.locator({s!r}).select_option(index=1)")
-            elif kind in ("checkbox", "radio"):
-                fill_lines.append(f"    page.locator({s!r}).check()")
-            else:
-                value = _SAMPLE_VALUES.get(kind, "test value")
-                fill_lines.append(f"    page.locator({s!r}).fill({value!r})")
-        fills_body = "\n".join(fill_lines) if fill_lines else "    # No fillable fields detected"
-        submit_body = (
-            f"    page.locator({submit!r}).click()" if submit
-            else "    # No submit button detected"
-        )
+        # F-1 缺陷 1：analyzer 有時把送出鈕誤放進 fields，導致模板對它呼叫
+        # .fill() 直接炸掉。這裡防禦性過濾掉 button 類 type 以及跟 submit
+        # 選擇器重複的項目。
+        fields = [
+            f for f in raw_fields
+            if f.get("selector")
+            and (f.get("type") or "").lower() not in _NON_FILLABLE_FIELD_TYPES
+            and f.get("selector") != submit
+        ]
+
+        # F-1 缺陷 2：描述寫「留空/empty」但程式仍先填值，body 與描述矛盾。
+        # 偵測到這類關鍵字時改渲染 empty-submit 變體：跳過所有 fill，直接送出。
+        empty_submit = _is_empty_submit_description(description)
+        variant = "empty-submit" if empty_submit else "happy-path"
+
+        if empty_submit:
+            fills_body = "    # empty-submit variant：刻意跳過所有 fill，驗證必填提示"
+        else:
+            fill_lines: list[str] = []
+            for f in fields:
+                s = f["selector"]
+                kind = (f.get("type") or "").lower()
+                if kind == "select":
+                    fill_lines.append(f"    page.locator({s!r}).select_option(index=1)")
+                elif kind in ("checkbox", "radio"):
+                    fill_lines.append(f"    page.locator({s!r}).check()")
+                else:
+                    value = _SAMPLE_VALUES.get(kind, "test value")
+                    fill_lines.append(f"    page.locator({s!r}).fill({value!r})")
+            fills_body = "\n".join(fill_lines) if fill_lines else "    # No fillable fields detected"
+
+        # F-1 缺陷 3：happy-path 且帶 module["api"]（analyze_url 附上的相關 API
+        # call）時，改產出真實斷言——等對應 response 進來並檢查狀態碼，而不是
+        # 留一個空的 TODO 註解。
+        api = module.get("api") if isinstance(module.get("api"), dict) else None
+        if not submit:
+            submit_body = "    # No submit button detected"
+        elif empty_submit:
+            submit_body = f"    page.locator({submit!r}).click()"
+        elif api and api.get("url_substring"):
+            # json.dumps gives a double-quoted, escaped literal matching the
+            # approved design's example verbatim.
+            url_substring_literal = json.dumps(str(api["url_substring"]))
+            submit_body = (
+                f"    with page.expect_response(lambda r: {url_substring_literal} in r.url) as _resp:\n"
+                f"        page.locator({submit!r}).click()\n"
+                "    assert _resp.value.status < 400"
+            )
+        else:
+            submit_body = f"    page.locator({submit!r}).click()"
+
         tcs = module.get("candidate_tcs") or []
         tc_block = "\n".join(f"    # TC: {tc}" for tc in tcs[:3])
         goto_url = url or "https://example.com"
         # description goes on the *function* docstring so the HTML reporter
         # picks it up as the case name. Module docstring keeps just the
-        # auto-gen trace for grep-ability.
+        # auto-gen trace for grep-ability, plus the variant this render
+        # actually produced — that's what kills the description/body mismatch.
         bc = self._business_context_block(business_context)
+
+        if empty_submit:
+            assertion_block = (
+                '    # TODO: 斷言錯誤提示，例如 expect(page.get_by_text("必填")).to_be_visible()\n'
+            )
+        elif api and api.get("url_substring"):
+            # 斷言已經內嵌在 submit_body 的 expect_response 區塊裡。
+            assertion_block = ""
+        else:
+            assertion_block = (
+                "    # TODO: 補上實際斷言，例如：\n"
+                "    # expect(page).to_have_url(...)\n"
+                '    # expect(page.get_by_text("成功")).to_be_visible()\n'
+            )
+
         return (
-            f'"""Auto-generated from analyze_url module: {module.get("name", "(unnamed)")} (kind=form)"""\n'
+            f'"""Auto-generated from analyze_url module: {module.get("name", "(unnamed)")} '
+            f'(kind=form, variant={variant})"""\n'
             "from playwright.sync_api import Page, expect\n\n\n"
             f"def test_{slug}(page: Page):\n"
             f"    {description!r}\n"
@@ -475,9 +545,7 @@ class PytestPlaywrightRunner(TestRunner):
             f"{fills_body}\n"
             f"{submit_body}\n"
             + (f"{tc_block}\n" if tc_block else "")
-            + "    # TODO: 補上實際斷言，例如：\n"
-              "    # expect(page).to_have_url(...)\n"
-              '    # expect(page.get_by_text("成功")).to_be_visible()\n'
+            + assertion_block
             + _OVERFLOW_HINT
         )
 

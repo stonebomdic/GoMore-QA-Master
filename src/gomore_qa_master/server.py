@@ -3,6 +3,7 @@ import json
 import time
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
+from urllib.parse import urlparse
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -300,6 +301,25 @@ register("qa_plan", _h_qa_plan, blocking=True)
 register("verify_plan", _h_verify_plan, blocking=True)
 
 
+def _pick_form_api(url: str, module: dict, endpoints: list[dict]) -> dict | None:
+    """Best-effort match of a form module to the API call it most likely
+    submits to: the first same-origin POST/PUT endpoint seen while the page
+    loaded. Feeds `module["api"]` so the runner can render a real
+    response-status assertion instead of a TODO stub (POC F-1 defect #3).
+
+    Heuristic, not causal: `endpoints` are captured on page LOAD, not on
+    actual form submit, so a match is a hint, and no match just means no
+    assertion is added (fallback TODO stays).
+    """
+    if module.get("kind") != "form":
+        return None
+    origin = urlparse(url).hostname
+    for ep in endpoints:
+        if ep.get("method") in ("POST", "PUT") and ep.get("host") == origin:
+            return {"method": ep["method"], "url_substring": ep.get("path") or ep.get("url")}
+    return None
+
+
 async def _auto_generate_tests(
     url: str,
     timeout_ms: int,
@@ -320,8 +340,11 @@ async def _auto_generate_tests(
     if isinstance(analysis, dict):
         telemetry.log_discovered_modules(url, analysis.get("modules", []) or [])
 
+    endpoints = (analysis.get("api_endpoints") or []) if isinstance(analysis, dict) else []
     generated: list[dict] = []
     for module in (analysis.get("modules", []) or []):
+        module_api = _pick_form_api(url, module, endpoints)
+        module_for_gen = {**module, "api": module_api} if module_api else module
         candidates = module.get("candidate_tcs", []) or []
         module_name = module.get("name", "module")
         for i, tc in enumerate(candidates[:tests_per_module]):
@@ -331,7 +354,7 @@ async def _auto_generate_tests(
                     description=tc,
                     filename=slug,
                     url=url,
-                    module=module,
+                    module=module_for_gen,
                 )
                 file_out = f"test_{slug}.py"
                 generated.append({

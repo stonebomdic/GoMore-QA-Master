@@ -1,9 +1,11 @@
 """Unit tests for `security_rules.bola` — both BOLA (API1) and FLA (API5)."""
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from gomore_qa_master.security_rules import (
     APIClient,
@@ -133,12 +135,21 @@ def test_bola_skips_with_info_when_one_side_empty():
 # ---- BOLA: core behavior --------------------------------------------------
 
 def test_bola_two_directions_both_2xx_yields_two_critical_findings():
-    """Both directions of the diff return 200 → 2 CRITICAL findings."""
+    """Both directions of the diff return 200, and each direction's
+    baseline (owner's own token, same path) comes back with genuinely
+    different content — a real cross-user leak, not shared content —
+    so both directions stay 2 CRITICAL findings."""
     c = _client(
         auth_pair=_pair(),
         responses=[
             _fake_response(status=200, text='{"id":2,"owner_id":2,"item":"bob pizza"}'),
+            # baseline: bob's own token, same path — different body
+            _fake_response(status=200,
+                            text='{"id":2,"owner_id":2,"item":"bob pizza","notes":"vip"}'),
             _fake_response(status=200, text='{"id":1,"owner_id":1,"item":"alice coffee"}'),
+            # baseline: alice's own token, same path — different body
+            _fake_response(status=200,
+                            text='{"id":1,"owner_id":1,"item":"alice coffee","notes":"member"}'),
         ],
     )
     findings = bola_rule.execute(c, _op("/orders/{id}"))
@@ -146,6 +157,8 @@ def test_bola_two_directions_both_2xx_yields_two_critical_findings():
     assert len(crit) == 2
     assert {f.evidence["actor"] for f in crit} == {"user_a", "user_b"}
     assert {f.evidence["target_owner"] for f in crit} == {"user_a", "user_b"}
+    for f in crit:
+        assert f.evidence["actor_body_md5"] != f.evidence["owner_body_md5"]
 
 
 def test_bola_safe_endpoint_403_yields_no_findings():
@@ -172,8 +185,9 @@ def test_bola_one_direction_succeeds_other_fails():
     c = _client(
         auth_pair=_pair(),
         responses=[
-            _fake_response(status=200, text='{"item":"bob"}'),  # alice → bob's id: 200
-            _fake_response(status=403),                          # bob → alice's id: 403
+            _fake_response(status=200, text='{"item":"bob"}'),      # alice → bob's id: 200
+            _fake_response(status=200, text='{"item":"bob-full"}'),  # baseline: bob's own token
+            _fake_response(status=403),                              # bob → alice's id: 403
         ],
     )
     findings = bola_rule.execute(c, _op("/orders/{id}"))
@@ -196,12 +210,109 @@ def test_bola_substitutes_correct_id_into_path():
 def test_bola_finding_carries_remediation_hint():
     c = _client(auth_pair=_pair(),
                 responses=[_fake_response(status=200, text='{}'),
+                           # baseline: owner's own token, same path — different body
+                           _fake_response(status=200, text='{"owner_only_field": true}'),
                            _fake_response(status=403)])
     findings = bola_rule.execute(c, _op("/orders/{id}"))
     crit = next(f for f in findings if f.severity == Severity.CRITICAL)
     assert "object-level authorization" in crit.title
     assert "owner" in crit.remediation_hint
     assert crit.evidence["status_code"] == 200
+
+
+# ---- BOLA: baseline diff (false-positive root cause fix) ------------------
+#
+# `_probe_direction` no longer calls CRITICAL off a bare 2xx. After the
+# actor's illicit read succeeds, it re-requests the SAME path with the
+# target owner's own token and diffs the two bodies (md5 of the
+# whitespace-stripped text):
+#   - identical    → INFO `-SharedContentSuspected` (likely a shared/
+#     public resource, not an object-level authz gap)
+#   - different    → stays CRITICAL, evidence gets both hashes
+#   - baseline call raises or comes back non-2xx → stays CRITICAL
+#     conservatively, evidence gets `baseline_unavailable`
+
+def test_bola_shared_content_downgrades_to_info_not_critical():
+    """actor's stolen read and the owner's own legitimate read of the
+    same object return byte-identical content → likely shared/public
+    content, not a real object-level authorization gap."""
+    shared_body = '{"id":2,"name":"public catalog entry"}'
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text=shared_body),   # alice → bob's id: 200
+            _fake_response(status=200, text=shared_body),   # baseline: bob's own token — same body
+            _fake_response(status=403),                       # bob → alice's id: 403 (keep dir-2 quiet)
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    assert not any(f.severity == Severity.CRITICAL for f in findings)
+    shared = [f for f in findings if f.rule_id.endswith("-SharedContentSuspected")]
+    assert len(shared) == 1
+    finding = shared[0]
+    assert finding.severity == Severity.INFO
+    assert finding.evidence["actor"] == "user_a"
+    assert finding.evidence["target_owner"] == "user_b"
+    assert finding.evidence["body_md5"] == hashlib.md5(shared_body.strip().encode()).hexdigest()
+    assert "共享資源" in finding.title
+
+
+def test_bola_differing_baseline_content_stays_critical_with_both_hashes():
+    """actor's read and the owner's own read of the same object differ
+    → conservative CRITICAL stands, evidence proves the divergence."""
+    actor_body = '{"id":2,"item":"bob pizza"}'
+    owner_body = '{"id":2,"item":"bob pizza","internal_notes":"vip customer"}'
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text=actor_body),
+            _fake_response(status=200, text=owner_body),  # baseline: bob's own token
+            _fake_response(status=403),
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert crit[0].rule_id.endswith("-CrossUserDataExposure")
+    assert crit[0].evidence["actor_body_md5"] == hashlib.md5(actor_body.strip().encode()).hexdigest()
+    assert crit[0].evidence["owner_body_md5"] == hashlib.md5(owner_body.strip().encode()).hexdigest()
+    assert crit[0].evidence["actor_body_md5"] != crit[0].evidence["owner_body_md5"]
+    assert not any(f.rule_id.endswith("-SharedContentSuspected") for f in findings)
+
+
+def test_bola_baseline_probe_exception_stays_critical_conservatively():
+    """If the baseline (owner's own token) request errors out, don't
+    silently drop the finding — stay CRITICAL and say why the diff
+    couldn't be completed."""
+    c = _client(auth_pair=_pair())
+    c.request = MagicMock(side_effect=[
+        _fake_response(status=200, text='{"item":"bob"}'),  # alice → bob's id: 200
+        requests.ConnectionError("boom"),                     # baseline request blows up
+        _fake_response(status=403),                           # bob → alice's id: 403
+    ])
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert crit[0].rule_id.endswith("-CrossUserDataExposure")
+    assert "ConnectionError" in crit[0].evidence["baseline_unavailable"]
+
+
+def test_bola_baseline_probe_non_2xx_stays_critical_conservatively():
+    """If the baseline request comes back non-2xx (e.g. the owner's own
+    token unexpectedly fails), stay CRITICAL rather than treat the
+    missing baseline as proof of anything."""
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text='{"item":"bob"}'),
+            _fake_response(status=500),  # baseline: owner's token, unexpected server error
+            _fake_response(status=403),
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert crit[0].evidence["baseline_unavailable"] == "owner_status_500"
 
 
 # ---- FLA: applies_to -----------------------------------------------------

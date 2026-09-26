@@ -23,3 +23,6 @@ test_app/
 * [0-9].*
 * [0-9][0-9].*
 docs/poc-mutating/spec.json
+
+# 本機掃描 artifact（含內部端點資訊，勿入版控）
+scan-results.json

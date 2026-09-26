@@ -492,6 +492,28 @@ TOOL_SCHEMAS = {'get_runner_info': {'properties': {}, 'type': 'object'},
                                                                '/ Cookies '
                                                                '複製值再貼進來。用於分析需要登入後才看得到的頁面。',
                                                 'type': 'string'},
+                                'auth_storage': {'additionalProperties': {'type': 'string'},
+                                                 'description': '選填，適用於把 token 存在 '
+                                                                'localStorage 的 SPA（cookie '
+                                                                '認證請改用 '
+                                                                'auth_cookie）。分析前先把每個 '
+                                                                'key/value 寫進 '
+                                                                'localStorage，導航前就位，SPA '
+                                                                '啟動時即已登入；注入只作用於目標 URL '
+                                                                '的 origin，不會外流到跨網域 '
+                                                                'iframe（廣告 / 分析 / 客服 widget）或 SSO '
+                                                                '轉址網域。格式：{"token": '
+                                                                '"..."}。強烈建議值用 '
+                                                                '`$ENV_NAME` '
+                                                                '間接引用（例如 '
+                                                                '`"$QA_WEB_TOKEN"`），實際值改放環境變數，避免明碼 '
+                                                                'token 落進對話 / '
+                                                                'log；僅當整段字串完全符合 '
+                                                                '`$ENV_NAME`（英數底線、不可數字開頭）格式才會展開，其餘（含單一 '
+                                                                '`$` '
+                                                                '或不合法變數名）一律當明碼直接使用。環境變數不存在時整個 '
+                                                                'tool 會回傳 error（不會靜默略過）。',
+                                                 'type': 'object'},
                                 'timeout_ms': {'default': 15000,
                                                'description': '選填，page.goto 等待 '
                                                               'DOMContentLoaded '
@@ -548,6 +570,34 @@ TOOL_SCHEMAS = {'get_runner_info': {'properties': {}, 'type': 'object'},
                                                                        'Cookies '
                                                                        '抓現成值貼進來。',
                                                         'type': 'string'},
+                                        'auth_storage': {'additionalProperties': {'type': 'string'},
+                                                         'description': '選填，適用於把 token '
+                                                                        '存在 localStorage '
+                                                                        '的 SPA（cookie '
+                                                                        '認證請改用 '
+                                                                        'auth_cookie）。內部 '
+                                                                        'analyze_url '
+                                                                        '分析前先把每個 '
+                                                                        'key/value 寫進 '
+                                                                        'localStorage，導航前就位，SPA '
+                                                                        '啟動時即已登入；注入只作用於目標 '
+                                                                        'URL 的 origin，不會外流到跨網域 '
+                                                                        'iframe（廣告 / 分析 / 客服 '
+                                                                        'widget）或 SSO '
+                                                                        '轉址網域。格式：{"token": '
+                                                                        '"..."}。強烈建議值用 '
+                                                                        '`$ENV_NAME` '
+                                                                        '間接引用（例如 '
+                                                                        '`"$QA_WEB_TOKEN"`），實際值改放環境變數，避免明碼 '
+                                                                        'token '
+                                                                        '落進對話 / '
+                                                                        'log；僅當整段字串完全符合 '
+                                                                        '`$ENV_NAME`（英數底線、不可數字開頭）格式才會展開，其餘（含單一 '
+                                                                        '`$` '
+                                                                        '或不合法變數名）一律當明碼直接使用。環境變數不存在時整個 '
+                                                                        'tool 會回傳 '
+                                                                        'error（不會靜默略過）。',
+                                                         'type': 'object'},
                                         'tests_per_module': {'default': 1,
                                                              'description': '選填，每個 '
                                                                             'module 從 '

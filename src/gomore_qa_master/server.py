@@ -222,6 +222,7 @@ async def _h_analyze_url(args: dict) -> list[TextContent]:
         args["url"],
         timeout_ms=args.get("timeout_ms", 15000),
         auth_cookie=args.get("auth_cookie"),
+        auth_storage=args.get("auth_storage"),
     )
     if isinstance(result, dict) and "error" not in result:
         telemetry.log_discovered_modules(args["url"], result.get("modules", []))
@@ -248,6 +249,7 @@ async def _h_auto_generate_tests(args: dict) -> list[TextContent]:
         url=args["url"],
         timeout_ms=args.get("timeout_ms", 15000),
         auth_cookie=args.get("auth_cookie"),
+        auth_storage=args.get("auth_storage"),
         tests_per_module=args.get("tests_per_module", 1),
     )
     return _json_text(result)
@@ -305,6 +307,7 @@ async def _auto_generate_tests(
     timeout_ms: int,
     auth_cookie: str | None,
     tests_per_module: int,
+    auth_storage: dict[str, str] | None = None,
 ) -> dict:
     """analyze_url → per module → generate_test × N. All-in-one orchestration.
 
@@ -313,7 +316,7 @@ async def _auto_generate_tests(
     so the optimizer still sees the same discovery + generation signals.
     """
     analysis = await analyzer.analyze_url(
-        url, timeout_ms=timeout_ms, auth_cookie=auth_cookie,
+        url, timeout_ms=timeout_ms, auth_cookie=auth_cookie, auth_storage=auth_storage,
     )
     if isinstance(analysis, dict) and "error" in analysis:
         return analysis

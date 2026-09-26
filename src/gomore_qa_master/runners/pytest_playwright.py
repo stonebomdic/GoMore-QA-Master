@@ -4,12 +4,14 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from .base import TestRunner
-from ..config import PROJECT_ROOT, REPORT_PATH, JUNIT_PATH, ARTIFACTS_DIR, HISTORY_DIR
+
+from ..config import ARTIFACTS_DIR, HISTORY_DIR, JUNIT_PATH, PROJECT_ROOT, REPORT_PATH
 from ..security import safe_run
+from .base import TestRunner
 
 
 def _parse_docstrings(file_path: Path) -> dict[str, str]:
@@ -40,6 +42,10 @@ _STEP_KEEP_PATTERN = re.compile(r"^(Frame|Page|Locator|ElementHandle|BrowserCont
 # Detect once at module load — pytest-rerunfailures lets us auto-retry transient
 # failures so the optimizer's flake signal is grounded in repeat-confirmed fails.
 _HAS_RERUNFAILURES = importlib.util.find_spec("pytest_rerunfailures") is not None
+
+# MCP server 行程的 PATH 通常不含 venv bin（Phase 5 實測：裸 `pytest` 直接
+# FileNotFoundError）。改用當前直譯器 -m pytest，保證跑在同一個環境。
+_PYTEST_CMD = [sys.executable, "-m", "pytest"]
 
 
 # Optional layout-integrity check — appended to generated tests as a
@@ -90,12 +96,12 @@ class PytestPlaywrightRunner(TestRunner):
     generation_context_fields = frozenset({"url", "module", "business_context"})
 
     def list_tests(self) -> str:
-        result = safe_run(["pytest", "--collect-only", "-q"], cwd=PROJECT_ROOT)
+        result = safe_run([*_PYTEST_CMD, "--collect-only", "-q"], cwd=PROJECT_ROOT)
         return result.stdout or result.stderr
 
     def _base_cmd(self, browser: str) -> list[str]:
         cmd = [
-            "pytest",
+            *_PYTEST_CMD,
             f"--browser={browser}",
             # always-on: reporter surfaces pass-state screenshots + step lists,
             # not just failures. Video stays retain-on-failure (heavy + only

@@ -1,8 +1,8 @@
 import json
-from .base import TestRunner
+
 from ..config import PROJECT_ROOT, REPORT_PATH
 from ..security import safe_run
-
+from .base import TestRunner
 
 JEST_TEMPLATE = '''/**
  * {description}
@@ -70,7 +70,7 @@ class JestRunner(TestRunner):
         return results
 
     def generate_test(self, description: str, filename: str) -> str:
-        if not (filename.endswith(".test.js") or filename.endswith(".spec.js")):
+        if not filename.endswith((".test.js", ".spec.js")):
             filename = f"{filename}.test.js"
         slug = filename.replace(".test.js", "").replace(".spec.js", "")
         content = JEST_TEMPLATE.format(description=description, slug=slug)

@@ -1,6 +1,6 @@
 [project]
 name = "gomore-qa-master"
-version = "0.9.7"
+version = "0.9.8"
 description = "MCP server + cross-host agent skill (Claude Code / Codex / OpenClaw / Hermes via agentskills.io) for running tests across pytest / Jest / Cypress / Go / Maestro / Schemathesis / Newman, with self-improvement analytics, bilingual EN/zh-TW QA knowledge, the v0.8 OWASP API Top 10 (2023) security scanner, and the v0.9 plan + verify bookend pattern (AI 測試大師)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,7 +19,8 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    # 2.x 移除了 Server.list_tools() 等 1.x decorator API（2026-09 實測），鎖 <2。
+    "mcp>=1.0.0,<2",
     "playwright>=1.40.0",
     "pytest>=8.0.0",
     "pytest-playwright>=0.4.0",
@@ -40,6 +41,25 @@ Repository = "git+https://github.com/stonebomdic/GoMore-QA-Master.git"
 
 [project.scripts]
 gomore-qa-master = "gomore_qa_master.server:run"
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# 沿用 ruff 預設規則集（CI 鎖版本以保穩定），2026-09-26 清理後歸零。
+# 以下為 QA runner 容錯設計的刻意模式，不納入守門：
+ignore = [
+    "BLE001",   # blind except：掃描規則爆炸時要能繼續掃
+    "DTZ005",   # naive datetime.now()：本機時間戳即可
+    "PLW1510",  # subprocess.run 無 check：呼叫端自行檢視 returncode
+    "S110",     # try-except-pass：非關鍵路徑的靜默容錯
+    "SIM115",   # analyzer 的 NamedTemporaryFile(delete=False) 刻意留檔給 maestro
+]
+
+[tool.pytest.ini_options]
+# src layout：讓 tests/ 不依賴 editable install 的 .pth（uv 管理的 CPython
+# 不吃 editable .pth，POC Phase 0 與 2026-09-26 均實測踩到）。
+pythonpath = ["src"]
 
 [build-system]
 requires = ["hatchling"]

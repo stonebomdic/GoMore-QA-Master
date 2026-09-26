@@ -11,6 +11,7 @@ Three lenses on the data:
 Output: structured dict + markdown at OPTIMIZATION_PATH. The runner auto-writes
 this after each archived run; AI editors read it via MCP resource.
 """
+import itertools
 import json
 import re
 from collections import Counter, defaultdict
@@ -18,15 +19,14 @@ from datetime import datetime
 from pathlib import Path
 
 from ..config import (
-    HISTORY_DIR,
-    OPTIMIZATION_PATH,
-    TOOL_USAGE_LOG,
     GENERATION_LOG,
+    HISTORY_DIR,
     MODULES_LOG,
+    OPTIMIZATION_PATH,
     PROJECT_ROOT,
+    TOOL_USAGE_LOG,
 )
 from . import telemetry
-
 
 # --- Public API --------------------------------------------------------------
 
@@ -124,7 +124,7 @@ def _analyze_suite(history: list[dict]) -> dict:
         skipped = outcomes.count("skipped")
 
         transitions = sum(
-            1 for a, b in zip(outcomes, outcomes[1:])
+            1 for a, b in itertools.pairwise(outcomes)
             if a != b and {a, b}.issubset({"passed", "failed"})
         )
         flake_score = transitions / max(1, n - 1)
@@ -210,7 +210,7 @@ def _analyze_usability(limit: int) -> dict:
     avg_duration_ms = {t: int(sum(v) / len(v)) for t, v in dur_by_tool.items() if v}
 
     pairs: Counter = Counter()
-    for a, b in zip(records, records[1:]):
+    for a, b in itertools.pairwise(records):
         ta, tb = a.get("tool"), b.get("tool")
         if ta and tb and ta != tb:
             pairs[(ta, tb)] += 1

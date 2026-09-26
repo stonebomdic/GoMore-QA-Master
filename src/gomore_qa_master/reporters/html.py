@@ -231,7 +231,6 @@ def render_report() -> str:
         for i, f in enumerate(failures or []):
             if isinstance(f, dict) and "error" in f:
                 continue
-            nodeid = escape(str(f.get("nodeid", "unknown")))
             message = escape(str(f.get("message", "")))
             dur = f.get("duration")
             dur_str = f"{dur:.3f}s" if isinstance(dur, (int, float)) else ""

@@ -46,7 +46,7 @@ def _isolated_env(monkeypatch, tmp_path):
     _reset_cache_for_tests()
 
 
-def _plan(critical_points: list = None) -> str:
+def _plan(critical_points: list | None = None) -> str:
     result = qa_plan_tool({
         "task": "Persist test",
         "critical_points": critical_points or ["thing happens"],

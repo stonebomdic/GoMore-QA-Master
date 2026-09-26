@@ -17,20 +17,20 @@ import json
 import os
 import re
 import shutil
+import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .base import TestRunner
 from ..config import (
+    HISTORY_DIR,
+    JUNIT_PATH,
     PROJECT_ROOT,
     REPORT_PATH,
-    JUNIT_PATH,
-    HISTORY_DIR,
 )
 from ..security import safe_run
-
+from .base import TestRunner
 
 # Secret-redaction patterns. Applied to request bodies, response bodies, and
 # the raw violation message before anything is written to disk. Disabled by
@@ -100,6 +100,11 @@ def _require_schemathesis_cli() -> str:
             "schemathesis is not installed. Install with: "
             "pip install 'gomore-qa-master[api]'"
         ) from e
+    # MCP server 行程的 PATH 通常不含 venv bin（Phase 5 實測），先找當前
+    # 直譯器旁邊的 CLI，再退回 PATH 查找。
+    venv_cli = Path(sys.executable).parent / "schemathesis"
+    if venv_cli.is_file():
+        return str(venv_cli)
     cli = shutil.which("schemathesis")
     if not cli:
         raise ImportError(

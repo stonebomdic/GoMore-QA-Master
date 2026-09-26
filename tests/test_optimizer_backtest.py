@@ -121,7 +121,7 @@ def test_backtest_prioritized_actions(corpus):
 
     # ai_adoption 是觀察型類別（Task 7 剪枝）→ 進 appendix 而非 top-line
     plan_appendix = plan["appendix_actions"]
-    adoption = [a for a in plan_appendix if a["category"] == "ai_adoption"][0]
+    adoption = next(a for a in plan_appendix if a["category"] == "ai_adoption")
     assert "0%" in adoption["evidence"]
     assert "ai_adoption" not in by_cat
 

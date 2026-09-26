@@ -29,7 +29,6 @@ import re
 
 from ..config import QA_KNOWLEDGE_PATH, QA_LANG
 
-
 # ---------------------------------------------------------------------------
 # Traditional Chinese methodology (the original v0.6.1 content, verbatim).
 # Hand-written; do NOT re-translate from English. New 4 sections at the end

@@ -10,6 +10,8 @@ from gomore_qa_master.security_rules import (
     MassAssignmentRule,
     OperationContext,
     Severity,
+)
+from gomore_qa_master.security_rules import (
     mass_assignment_rule as rule,
 )
 from gomore_qa_master.security_rules.mass_assignment import (
@@ -19,7 +21,6 @@ from gomore_qa_master.security_rules.mass_assignment import (
     _minimal_body_from_schema,
     _placeholder_for,
 )
-
 
 # ---- helpers --------------------------------------------------------------
 

@@ -67,7 +67,7 @@ def test_tool_surface_matches_golden_fixture():
         for t in tools
     ]
     # 與 fixture 相同的正規化（sort_keys）後比對
-    norm = lambda x: json.loads(json.dumps(x, ensure_ascii=False, sort_keys=True))  # noqa: E731
+    norm = lambda x: json.loads(json.dumps(x, ensure_ascii=False, sort_keys=True))
     assert norm(actual) == norm(golden)
 
 

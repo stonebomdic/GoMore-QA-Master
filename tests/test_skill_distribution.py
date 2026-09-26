@@ -72,7 +72,7 @@ def test_skill_md_exists():
 
 
 def test_skill_md_frontmatter_has_required_fields():
-    fm, body = _parse_frontmatter(SKILL_MD.read_text(encoding="utf-8"))
+    fm, _body = _parse_frontmatter(SKILL_MD.read_text(encoding="utf-8"))
     # Claude Code / agentskills.io require name, description, allowed-tools
     for required in ("name", "description", "allowed-tools"):
         assert required in fm, f"SKILL.md frontmatter missing `{required}`"

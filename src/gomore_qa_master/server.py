@@ -1,17 +1,29 @@
 import asyncio
 import json
 import time
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, Resource
+from mcp.types import Resource, TextContent, Tool
 from pydantic import AnyUrl
 
-from .tools import runner, reporter, generator, analyzer, telemetry, optimizer, qa_context
-from .runners import get_runner, REGISTRY as RUNNER_REGISTRY
-from .tools.registry import REGISTRY as TOOL_REGISTRY, register
+from .config import OPTIMIZATION_PATH, REPORT_PATH
 from .reporters import html as html_reporter
-from .config import REPORT_PATH, OPTIMIZATION_PATH
+from .runners import REGISTRY as RUNNER_REGISTRY
+from .runners import get_runner
+from .tools import (
+    analyzer,
+    generator,
+    optimizer,
+    qa_context,
+    reporter,
+    runner,
+    telemetry,
+)
+from .tools.registry import REGISTRY as TOOL_REGISTRY
+from .tools.registry import register
 
 # Single source of truth: report the installed package version so serverInfo
 # stays in lockstep with pyproject (which test_skill_distribution ties to the
@@ -125,7 +137,7 @@ def _json_text(payload) -> list[TextContent]:
 def _h_get_runner_info(args: dict) -> list[TextContent]:
     info = {
         "current": get_runner().name,
-        "available": sorted(set(r.name for r in RUNNER_REGISTRY.values())),
+        "available": sorted({r.name for r in RUNNER_REGISTRY.values()}),
     }
     return _json_text(info)
 

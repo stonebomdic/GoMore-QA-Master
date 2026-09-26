@@ -8,22 +8,16 @@ Real-HTTP dogfood lives in
 from __future__ import annotations
 
 import json
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from gomore_qa_master.runners.api_security import (
     DEFAULT_CATEGORIES,
-    RULE_BY_CATEGORY,
     _host_authorized,
     _walk_operations,
     load_spec,
     run_scan,
 )
-
 
 # ---- fixtures -------------------------------------------------------------
 

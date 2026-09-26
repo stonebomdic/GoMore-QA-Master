@@ -59,7 +59,6 @@ import jwt as pyjwt
 from .base import APIClient, Finding, OperationContext, Severity
 from .headers_misconfig import _resolve_path
 
-
 # Random secret for the WrongSignature probe. Hardcoded because it's
 # meant to be DIFFERENT from any real server's secret — the value
 # itself doesn't matter as long as it never accidentally matches.

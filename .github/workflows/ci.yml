@@ -21,6 +21,21 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    # v0.9.8: ruff 守門（2026-09-26 全面清理後歸零）。規則集用 ruff 預設 +
+    # pyproject [tool.ruff.lint].ignore 的刻意排除；鎖 minor 版避免預設集漂移。
+    name: lint · ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install 'ruff>=0.16,<0.17'
+      - name: Ruff check
+        run: ruff check src/ tests/ scripts/
+
   smoke:
     name: smoke · Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest

@@ -47,10 +47,8 @@ on multi-param paths so users know they were skipped.
 from __future__ import annotations
 
 import re
-from typing import Any
 
-from .base import APIClient, AuthPair, Finding, OperationContext, Severity
-
+from .base import APIClient, Finding, OperationContext, Severity
 
 _DEFAULT_FLA_ADMIN_PATHS = ["/admin/", "/admin"]
 
@@ -97,9 +95,7 @@ class BOLARule:
         if op.method.upper() != "GET":
             return False
         # Single path parameter only. Multi-param paths punt to v0.8.1.
-        if _count_path_params(op.path) != 1:
-            return False
-        return True
+        return _count_path_params(op.path) == 1
 
     def execute(self, client: APIClient, op: OperationContext) -> list[Finding]:
         endpoint = f"{op.method.upper()} {op.path}"
@@ -195,15 +191,13 @@ class FunctionAuthzRule:
     requires_auth_pair: bool = True
 
     def applies_to(self, op: OperationContext) -> bool:
-        if not op.requires_auth:
-            return False
         # Path-pattern selection. Production scanners would also honor
         # spec-declared scopes (e.g. OAuth2 `admin` scope) but our
         # fixture and most simple specs lack them. Path-pattern is a
         # safe default; an `fla_admin_paths` override per-scan lets
-        # callers tune this.
-        return True  # actual filtering happens in execute() so we can
-                     # surface "no auth_pair" INFO findings consistently
+        # callers tune this. Actual filtering happens in execute() so we
+        # can surface "no auth_pair" INFO findings consistently.
+        return op.requires_auth
 
     def execute(self, client: APIClient, op: OperationContext) -> list[Finding]:
         endpoint = f"{op.method.upper()} {op.path}"

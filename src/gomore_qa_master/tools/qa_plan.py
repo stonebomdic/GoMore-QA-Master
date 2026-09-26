@@ -65,13 +65,13 @@ import os
 import threading
 import uuid
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from . import assertions
-
 
 # ---- config -------------------------------------------------------------
 
@@ -130,7 +130,7 @@ class _Plan:
 
 # ---- store -------------------------------------------------------------
 
-_ACTIVE_PLANS: "OrderedDict[str, _Plan]" = OrderedDict()
+_ACTIVE_PLANS: OrderedDict[str, _Plan] = OrderedDict()
 _CACHE_LOCK = threading.Lock()
 
 
@@ -162,7 +162,7 @@ def _store_plan(plan: _Plan) -> Path | None:
     return None
 
 
-def _fetch_plan(plan_id: str) -> tuple["_Plan | None", str]:
+def _fetch_plan(plan_id: str) -> tuple[_Plan | None, str]:
     """Fetch a plan, returning (plan, source).
 
     source is "memory" (cache hit), "disk" (fell through to persisted
@@ -346,7 +346,7 @@ def _plans_dir() -> Path:
     return (base / "test-results" / "plans").resolve()
 
 
-def _plan_to_json(plan: "_Plan") -> dict[str, Any]:
+def _plan_to_json(plan: _Plan) -> dict[str, Any]:
     return {
         "plan_id": plan.plan_id,
         "task": plan.task,
@@ -359,7 +359,7 @@ def _plan_to_json(plan: "_Plan") -> dict[str, Any]:
     }
 
 
-def _plan_from_json(data: dict[str, Any]) -> "_Plan | None":
+def _plan_from_json(data: dict[str, Any]) -> _Plan | None:
     """Best-effort reverse of _plan_to_json. Returns None on shape mismatch."""
     try:
         plan_id = data["plan_id"]
@@ -396,7 +396,7 @@ def _plan_from_json(data: dict[str, Any]) -> "_Plan | None":
     )
 
 
-def _persist_plan(plan: "_Plan") -> Path | None:
+def _persist_plan(plan: _Plan) -> Path | None:
     """Atomically write the plan to <plans_dir>/<plan_id>.json.
 
     Best-effort: any OSError is swallowed (returns None) so a read-only
@@ -429,7 +429,7 @@ def _persist_plan(plan: "_Plan") -> Path | None:
         return None
 
 
-def _load_persisted_plan(plan_id: str) -> "_Plan | None":
+def _load_persisted_plan(plan_id: str) -> _Plan | None:
     """Read a plan back from disk. Returns None on missing / malformed.
 
     Expiry semantics: we honor the original `expires_at` even on disk.

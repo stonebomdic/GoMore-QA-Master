@@ -43,10 +43,7 @@ runs the rule against both and asserts behavior end-to-end.
 """
 from __future__ import annotations
 
-from typing import Any
-
 from .base import APIClient, Finding, OperationContext, Severity
-
 
 # Required response headers — missing ANY of these triggers a finding.
 # Capitalization mirrors what servers conventionally send; requests
@@ -111,7 +108,7 @@ class HeadersMisconfigRule:
         findings: list[Finding] = []
 
         # 1) Missing required headers.
-        present_keys = {k.lower() for k in resp.headers.keys()}
+        present_keys = {k.lower() for k in resp.headers}
         for h in REQUIRED_HEADERS:
             if h.lower() not in present_keys:
                 findings.append(Finding(

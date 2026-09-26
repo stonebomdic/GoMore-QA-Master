@@ -7,8 +7,9 @@ description/inputSchema 放進 schemas.py 的兩個 dict。list_tools 順序 ==
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from .schemas import TOOL_DESCRIPTIONS, TOOL_SCHEMAS
 

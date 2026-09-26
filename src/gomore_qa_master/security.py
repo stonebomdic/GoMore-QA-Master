@@ -21,7 +21,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 # Default subprocess timeout. Mobile flows on slow emulators or CI
 # legitimately take minutes; 10 min leaves headroom while still capping
 # pathological hangs (looping retries, dead simulators, network stalls).

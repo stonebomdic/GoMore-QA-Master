@@ -361,6 +361,7 @@ def run_scan(
             user_a_token=primary_token,
             user_b_token=alt_token,
             bola_test_ids=auth.get("bola_test_ids"),
+            bola_shared_endpoints=auth.get("bola_shared_endpoints") or [],
             fla_admin_paths=auth.get("fla_admin_paths"),
             fla_low_priv_user=auth.get("fla_low_priv_user", "user_a"),
         )

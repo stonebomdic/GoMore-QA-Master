@@ -120,12 +120,27 @@ class AuthPair:
     `fla_admin_paths`: substrings that mark a path as elevated-priv.
     Function Level Authz rule probes these with the LOW-priv token
     (user_a) — a 2xx response is the API5 finding.
+
+    `bola_shared_endpoints`: substrings against `op.path` (same
+    matching as `fla_admin_paths`) declaring an endpoint as an
+    intentionally shared resource — e.g. read-shared, write-owned
+    content where "actor sees the same thing the nominal owner would"
+    is expected, not a bug. BOLA's 4-probe diff (see
+    `security_rules.bola` module docstring) can't distinguish that
+    shape from a real per-owner leak by content alone when the
+    resource is shared to any logged-in user but not to anonymous
+    callers; declaring it here short-circuits straight to an INFO
+    `-DeclaredShared` finding instead of CRITICAL. `bola_test_ids`
+    must otherwise map to objects that really are private per-user.
     """
     user_a_token: str
     user_b_token: str
     # {"user_a": [1, 3], "user_b": [2]} — ids of objects each user owns.
     # Required for the BOLA rule; FLA rule doesn't use this.
     bola_test_ids: dict[str, list[int]] | None = None
+    # Path substrings declaring an endpoint as intentionally shared —
+    # see the docstring above. Empty/None = no declared exceptions.
+    bola_shared_endpoints: list[str] = field(default_factory=list)
     # Substring matches against the OpenAPI path. Default below if None.
     fla_admin_paths: list[str] | None = None
     # Which user is "low-priv" for the FLA rule. Default: user_a.

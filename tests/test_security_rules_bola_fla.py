@@ -1,7 +1,6 @@
 """Unit tests for `security_rules.bola` — both BOLA (API1) and FLA (API5)."""
 from __future__ import annotations
 
-import hashlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,6 +16,7 @@ from gomore_qa_master.security_rules import (
 )
 from gomore_qa_master.security_rules.bola import (
     _count_path_params,
+    _fingerprint,
     _matches_admin_pattern,
     _substitute_first_path_param,
 )
@@ -132,39 +132,58 @@ def test_bola_skips_with_info_when_one_side_empty():
     assert findings[0].evidence["reason"] == "incomplete_bola_test_ids"
 
 
-# ---- BOLA: core behavior --------------------------------------------------
+# ---- BOLA: core behavior ---------------------------------------------------
+#
+# Every direction now runs (up to) 4 probes, always in this order:
+#   1. owner baseline  — target owner's own token, same path (done FIRST)
+#   2. actor probe     — actor's own token, same path (non-2xx => no
+#                        finding, same as always)
+#   3. unauth probe    — token=None, same path
+#   4. actor control   — actor's own token, actor's OWN first object id
+#
+# To keep two-direction tests simple, the "other" direction is usually
+# made quiet by having its actor probe return a non-2xx status (403),
+# which stops it after exactly 2 calls (owner baseline + actor probe).
 
-def test_bola_two_directions_both_2xx_yields_two_critical_findings():
-    """Both directions of the diff return 200, and each direction's
-    baseline (owner's own token, same path) comes back with genuinely
-    different content — a real cross-user leak, not shared content —
-    so both directions stay 2 CRITICAL findings."""
+def test_bola_two_directions_real_leak_yields_two_critical_findings():
+    """Both directions: actor's illicit read matches the owner's own
+    legitimate read, and an anonymous caller is blocked — the textbook
+    cross-user-leak signature — so both stay CRITICAL."""
     c = _client(
         auth_pair=_pair(),
         responses=[
-            _fake_response(status=200, text='{"id":2,"owner_id":2,"item":"bob pizza"}'),
-            # baseline: bob's own token, same path — different body
-            _fake_response(status=200,
-                            text='{"id":2,"owner_id":2,"item":"bob pizza","notes":"vip"}'),
-            _fake_response(status=200, text='{"id":1,"owner_id":1,"item":"alice coffee"}'),
-            # baseline: alice's own token, same path — different body
-            _fake_response(status=200,
-                            text='{"id":1,"owner_id":1,"item":"alice coffee","notes":"member"}'),
+            # -- direction 1: alice (actor) -> bob's id=2 (owner) --
+            _fake_response(status=200, text='{"id":2,"item":"bob pizza"}'),   # 1 owner baseline
+            _fake_response(status=200, text='{"id":2,"item":"bob pizza"}'),   # 2 actor probe (== owner)
+            _fake_response(status=403),                                        # 3 unauth (blocked)
+            _fake_response(status=200, text='{"id":1,"item":"alice coffee"}'),  # 4 actor control
+            # -- direction 2: bob (actor) -> alice's id=1 (owner) --
+            _fake_response(status=200, text='{"id":1,"item":"alice coffee"}'),  # 1 owner baseline
+            _fake_response(status=200, text='{"id":1,"item":"alice coffee"}'),  # 2 actor probe (== owner)
+            _fake_response(status=403),                                        # 3 unauth (blocked)
+            _fake_response(status=200, text='{"id":2,"item":"bob pizza"}'),    # 4 actor control
         ],
     )
     findings = bola_rule.execute(c, _op("/orders/{id}"))
     crit = [f for f in findings if f.severity == Severity.CRITICAL]
     assert len(crit) == 2
+    assert all(f.rule_id.endswith("-CrossUserDataExposure") for f in crit)
     assert {f.evidence["actor"] for f in crit} == {"user_a", "user_b"}
     assert {f.evidence["target_owner"] for f in crit} == {"user_a", "user_b"}
     for f in crit:
-        assert f.evidence["actor_body_md5"] != f.evidence["owner_body_md5"]
+        assert f.evidence["actor_fingerprint"] == f.evidence["owner_fingerprint"]
+        assert f.evidence["unauth_blocked"] is True
 
 
 def test_bola_safe_endpoint_403_yields_no_findings():
     c = _client(
         auth_pair=_pair(),
-        responses=[_fake_response(status=403), _fake_response(status=403)],
+        responses=[
+            _fake_response(status=200),   # dir1 owner baseline (moot — actor never hits)
+            _fake_response(status=403),   # dir1 actor probe
+            _fake_response(status=200),   # dir2 owner baseline (moot)
+            _fake_response(status=403),   # dir2 actor probe
+        ],
     )
     findings = bola_rule.execute(c, _op("/orders/{id}"))
     assert findings == []
@@ -174,20 +193,30 @@ def test_bola_404_treated_as_safe():
     """404 = id doesn't exist for this user → no leak."""
     c = _client(
         auth_pair=_pair(),
-        responses=[_fake_response(status=404), _fake_response(status=404)],
+        responses=[
+            _fake_response(status=200),
+            _fake_response(status=404),
+            _fake_response(status=200),
+            _fake_response(status=404),
+        ],
     )
     findings = bola_rule.execute(c, _op("/orders/{id}"))
     assert findings == []
 
 
-def test_bola_one_direction_succeeds_other_fails():
+def test_bola_one_direction_leaks_other_quiet():
     """Asymmetric vuln: alice can read bob's order but not vice versa."""
     c = _client(
         auth_pair=_pair(),
         responses=[
-            _fake_response(status=200, text='{"item":"bob"}'),      # alice → bob's id: 200
-            _fake_response(status=200, text='{"item":"bob-full"}'),  # baseline: bob's own token
-            _fake_response(status=403),                              # bob → alice's id: 403
+            # direction 1: real leak
+            _fake_response(status=200, text='{"item":"bob"}'),   # owner baseline
+            _fake_response(status=200, text='{"item":"bob"}'),   # actor probe (== owner)
+            _fake_response(status=403),                            # unauth blocked
+            _fake_response(status=200, text='{"item":"alice-own"}'),  # actor control
+            # direction 2: quiet
+            _fake_response(status=200),   # owner baseline (moot)
+            _fake_response(status=403),   # actor probe: blocked
         ],
     )
     findings = bola_rule.execute(c, _op("/orders/{id}"))
@@ -197,22 +226,43 @@ def test_bola_one_direction_succeeds_other_fails():
     assert crit[0].evidence["target_owner"] == "user_b"
 
 
-def test_bola_substitutes_correct_id_into_path():
-    """The probed path must contain user-B's id, not the template `{id}`."""
-    c = _client(auth_pair=_pair(),
-                responses=[_fake_response(status=403), _fake_response(status=403)])
+def test_bola_probe_sequence_uses_get_and_correct_tokens_in_order():
+    """The 4-probe diff always issues, in this exact order: owner
+    baseline, actor probe, unauth probe (token=None), actor control —
+    all as a literal "GET", regardless of `op.method` (which is "GET"
+    here anyway, since applies_to() enforces that)."""
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text='{"id":2,"item":"bob pizza"}'),   # owner baseline
+            _fake_response(status=200, text='{"id":2,"item":"bob pizza"}'),   # actor probe
+            _fake_response(status=403),                                        # unauth probe
+            _fake_response(status=200, text='{"id":1,"item":"alice coffee"}'),  # actor control
+            _fake_response(status=200),   # dir2 owner baseline (moot)
+            _fake_response(status=403),   # dir2 actor probe: blocked, keeps dir2 quiet
+        ],
+    )
     bola_rule.execute(c, _op("/orders/{id}"))
-    paths_called = [call.args[1] for call in c.request.call_args_list]
-    assert paths_called[0] == "/orders/2"  # alice → bob's id
-    assert paths_called[1] == "/orders/1"  # bob → alice's id
+    calls = [(call.args[0], call.args[1], call.kwargs.get("token", "<unset>"))
+             for call in c.request.call_args_list]
+    assert calls[0] == ("GET", "/orders/2", "bob-token")     # 1 owner baseline
+    assert calls[1] == ("GET", "/orders/2", "alice-token")   # 2 actor probe
+    assert calls[2] == ("GET", "/orders/2", None)            # 3 unauth probe
+    assert calls[3] == ("GET", "/orders/1", "alice-token")   # 4 actor control (alice's OWN id=1)
 
 
 def test_bola_finding_carries_remediation_hint():
-    c = _client(auth_pair=_pair(),
-                responses=[_fake_response(status=200, text='{}'),
-                           # baseline: owner's own token, same path — different body
-                           _fake_response(status=200, text='{"owner_only_field": true}'),
-                           _fake_response(status=403)])
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text='{"item":"x"}'),   # owner baseline
+            _fake_response(status=200, text='{"item":"x"}'),   # actor probe (== owner)
+            _fake_response(status=403),                          # unauth blocked
+            _fake_response(status=200, text='{"item":"y"}'),   # actor control
+            _fake_response(status=200),
+            _fake_response(status=403),
+        ],
+    )
     findings = bola_rule.execute(c, _op("/orders/{id}"))
     crit = next(f for f in findings if f.severity == Severity.CRITICAL)
     assert "object-level authorization" in crit.title
@@ -220,53 +270,79 @@ def test_bola_finding_carries_remediation_hint():
     assert crit.evidence["status_code"] == 200
 
 
-# ---- BOLA: baseline diff (false-positive root cause fix) ------------------
+# ---- BOLA: fingerprint-driven verdicts (A′ design) -------------------------
 #
-# `_probe_direction` no longer calls CRITICAL off a bare 2xx. After the
-# actor's illicit read succeeds, it re-requests the SAME path with the
-# target owner's own token and diffs the two bodies (md5 of the
-# whitespace-stripped text):
-#   - identical    → INFO `-SharedContentSuspected` (likely a shared/
-#     public resource, not an object-level authz gap)
-#   - different    → stays CRITICAL, evidence gets both hashes
-#   - baseline call raises or comes back non-2xx → stays CRITICAL
-#     conservatively, evidence gets `baseline_unavailable`
+# Once the actor's probe hits 2xx, `_probe_direction` gathers owner /
+# unauth / actor-control fingerprints (`_fingerprint`: JSON-normalized
+# + volatile-field-stripped sha256, falling back to whitespace-
+# stripped text) before drawing ANY conclusion. See the module
+# docstring for the full decision table.
 
-def test_bola_shared_content_downgrades_to_info_not_critical():
-    """actor's stolen read and the owner's own legitimate read of the
-    same object return byte-identical content → likely shared/public
-    content, not a real object-level authorization gap."""
-    shared_body = '{"id":2,"name":"public catalog entry"}'
+def test_bola_public_content_downgrades_to_info_not_critical():
+    """An unauthenticated request gets the SAME content as the actor's
+    — the spec declares auth required but it isn't enforced. That's a
+    `broken_auth` problem, not an object-level one."""
+    body = '{"id":2,"name":"public catalog entry"}'
     c = _client(
         auth_pair=_pair(),
         responses=[
-            _fake_response(status=200, text=shared_body),   # alice → bob's id: 200
-            _fake_response(status=200, text=shared_body),   # baseline: bob's own token — same body
-            _fake_response(status=403),                       # bob → alice's id: 403 (keep dir-2 quiet)
+            _fake_response(status=200, text='{"id":2,"name":"owner-only view"}'),  # owner baseline
+            _fake_response(status=200, text=body),   # actor probe
+            _fake_response(status=200, text=body),   # unauth probe: matches actor => public
+            _fake_response(status=200),   # dir2 owner baseline (moot)
+            _fake_response(status=403),   # dir2 actor probe: blocked, quiet
         ],
     )
     findings = bola_rule.execute(c, _op("/orders/{id}"))
     assert not any(f.severity == Severity.CRITICAL for f in findings)
-    shared = [f for f in findings if f.rule_id.endswith("-SharedContentSuspected")]
-    assert len(shared) == 1
-    finding = shared[0]
-    assert finding.severity == Severity.INFO
-    assert finding.evidence["actor"] == "user_a"
-    assert finding.evidence["target_owner"] == "user_b"
-    assert finding.evidence["body_md5"] == hashlib.md5(shared_body.strip().encode()).hexdigest()
-    assert "共享資源" in finding.title
+    public = [f for f in findings if f.rule_id.endswith("-PublicContent")]
+    assert len(public) == 1
+    assert public[0].severity == Severity.INFO
+    assert public[0].evidence["actor_fingerprint"] == public[0].evidence["unauth_fingerprint"]
+    assert public[0].evidence["unauth_status_code"] == 200
+    assert "authentication" in public[0].title
 
 
-def test_bola_differing_baseline_content_stays_critical_with_both_hashes():
-    """actor's read and the owner's own read of the same object differ
-    → conservative CRITICAL stands, evidence proves the divergence."""
-    actor_body = '{"id":2,"item":"bob pizza"}'
-    owner_body = '{"id":2,"item":"bob pizza","internal_notes":"vip customer"}'
+def test_bola_scoped_view_when_actor_gets_own_data_back():
+    """The endpoint ignores the path id entirely and just returns the
+    caller's own data (e.g. from a JWT `sub` claim) — positive proof
+    there's no cross-user id-selection happening, so this is INFO, not
+    a leak."""
+    actor_and_own_body = '{"id":1,"item":"alice coffee"}'
+    owner_body = '{"id":2,"item":"bob pizza"}'
     c = _client(
         auth_pair=_pair(),
         responses=[
-            _fake_response(status=200, text=actor_body),
-            _fake_response(status=200, text=owner_body),  # baseline: bob's own token
+            _fake_response(status=200, text=owner_body),          # owner baseline
+            _fake_response(status=200, text=actor_and_own_body),  # actor probe: got alice's OWN data
+            _fake_response(status=403),                             # unauth blocked
+            _fake_response(status=200, text=actor_and_own_body),  # actor control: matches actor probe
+            _fake_response(status=200),
+            _fake_response(status=403),
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    assert not any(f.severity == Severity.CRITICAL for f in findings)
+    scoped = [f for f in findings if f.rule_id.endswith("-ScopedView")]
+    assert len(scoped) == 1
+    assert scoped[0].severity == Severity.INFO
+    assert scoped[0].evidence["actor_fingerprint"] == scoped[0].evidence["actor_own_fingerprint"]
+    assert scoped[0].evidence["actor_fingerprint"] != scoped[0].evidence["owner_fingerprint"]
+
+
+def test_bola_ambiguous_partial_diff_stays_critical_with_diff_class():
+    """actor's content matches neither the owner's baseline nor the
+    actor's own control response — ambiguous (could be a partial leak
+    or an un-stripped volatile field). Ship it CRITICAL for a human to
+    review rather than silently dropping it."""
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text='{"id":2,"item":"bob pizza"}'),     # owner baseline
+            _fake_response(status=200, text='{"id":2,"item":"partial view"}'),  # actor probe
+            _fake_response(status=403),                                          # unauth blocked
+            _fake_response(status=200, text='{"id":1,"item":"alice coffee"}'),  # actor control
+            _fake_response(status=200),
             _fake_response(status=403),
         ],
     )
@@ -274,21 +350,93 @@ def test_bola_differing_baseline_content_stays_critical_with_both_hashes():
     crit = [f for f in findings if f.severity == Severity.CRITICAL]
     assert len(crit) == 1
     assert crit[0].rule_id.endswith("-CrossUserDataExposure")
-    assert crit[0].evidence["actor_body_md5"] == hashlib.md5(actor_body.strip().encode()).hexdigest()
-    assert crit[0].evidence["owner_body_md5"] == hashlib.md5(owner_body.strip().encode()).hexdigest()
-    assert crit[0].evidence["actor_body_md5"] != crit[0].evidence["owner_body_md5"]
-    assert not any(f.rule_id.endswith("-SharedContentSuspected") for f in findings)
+    assert crit[0].evidence["diff_class"] == "partial_or_volatile"
 
 
-def test_bola_baseline_probe_exception_stays_critical_conservatively():
-    """If the baseline (owner's own token) request errors out, don't
-    silently drop the finding — stay CRITICAL and say why the diff
-    couldn't be completed."""
+def test_bola_volatile_field_alone_does_not_defeat_leak_detection():
+    """Only a volatile field (timestamp) differs between the owner's
+    and actor's responses — `_fingerprint` normalizes it away, so this
+    is still recognized as the SAME content and flagged as a real
+    leak, not miscategorized as an ambiguous partial diff."""
+    owner_text = '{"id":2,"item":"bob pizza","timestamp":"2026-01-01T00:00:00Z"}'
+    actor_text = '{"id":2,"item":"bob pizza","timestamp":"2026-09-26T08:00:00Z"}'
+    assert _fingerprint(_fake_response(text=owner_text)) == _fingerprint(_fake_response(text=actor_text))
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text=owner_text),
+            _fake_response(status=200, text=actor_text),
+            _fake_response(status=403),
+            _fake_response(status=200, text='{"id":1,"item":"alice coffee"}'),
+            _fake_response(status=200),
+            _fake_response(status=403),
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert crit[0].rule_id.endswith("-CrossUserDataExposure")
+    assert "diff_class" not in crit[0].evidence
+
+
+def test_bola_declared_shared_endpoint_downgrades_to_info():
+    """`auth.bola_shared_endpoints` is an explicit escape hatch: it
+    overrides whatever the content diff would otherwise conclude."""
+    pair = _pair(bola_shared_endpoints=["/orders/"])
+    c = _client(
+        auth_pair=pair,
+        responses=[
+            _fake_response(status=200, text='{"id":2,"item":"bob pizza"}'),
+            _fake_response(status=200, text='{"id":2,"item":"a shared view"}'),  # would be ambiguous
+            _fake_response(status=403),
+            _fake_response(status=200),
+            _fake_response(status=403),
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    assert not any(f.severity == Severity.CRITICAL for f in findings)
+    declared = [f for f in findings if f.rule_id.endswith("-DeclaredShared")]
+    assert len(declared) == 1
+    assert declared[0].severity == Severity.INFO
+    assert declared[0].evidence["declared_shared"] is True
+    assert declared[0].evidence["matched_pattern"] == "/orders/"
+    assert "actor_fingerprint" in declared[0].evidence
+    assert "owner_fingerprint" in declared[0].evidence
+    assert "unauth_fingerprint" in declared[0].evidence
+
+
+# ---- BOLA: fail-closed on probe failures -----------------------------------
+#
+# Any exception during probes 1/3/4, or a non-2xx owner baseline (1),
+# stays CRITICAL rather than let an investigative probe's own failure
+# make a real finding disappear. The actor's OWN probe (2) keeps its
+# pre-existing contract: a request error there means we never even
+# confirmed a hit, so it's an INFO `-ProbeFailed`, unchanged.
+
+def test_bola_actor_probe_exception_yields_info_probe_failed():
+    """Unchanged from before this redesign: the actor's own probe
+    erroring out means no hit was ever confirmed — INFO, not CRITICAL."""
     c = _client(auth_pair=_pair())
     c.request = MagicMock(side_effect=[
-        _fake_response(status=200, text='{"item":"bob"}'),  # alice → bob's id: 200
-        requests.ConnectionError("boom"),                     # baseline request blows up
-        _fake_response(status=403),                           # bob → alice's id: 403
+        _fake_response(status=200),          # dir1 owner baseline
+        requests.ConnectionError("boom"),     # dir1 actor probe blows up
+        _fake_response(status=200),          # dir2 owner baseline
+        _fake_response(status=403),          # dir2 actor probe: blocked, quiet
+    ])
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    assert not any(f.severity == Severity.CRITICAL for f in findings)
+    failed = [f for f in findings if f.rule_id.endswith("-ProbeFailed")]
+    assert len(failed) == 1
+    assert failed[0].severity == Severity.INFO
+
+
+def test_bola_owner_baseline_exception_stays_critical_conservatively():
+    c = _client(auth_pair=_pair())
+    c.request = MagicMock(side_effect=[
+        requests.ConnectionError("boom"),           # dir1 owner baseline blows up
+        _fake_response(status=200, text='{"item":"bob"}'),  # dir1 actor probe: 2xx
+        _fake_response(status=200),
+        _fake_response(status=403),
     ])
     findings = bola_rule.execute(c, _op("/orders/{id}"))
     crit = [f for f in findings if f.severity == Severity.CRITICAL]
@@ -297,15 +445,13 @@ def test_bola_baseline_probe_exception_stays_critical_conservatively():
     assert "ConnectionError" in crit[0].evidence["baseline_unavailable"]
 
 
-def test_bola_baseline_probe_non_2xx_stays_critical_conservatively():
-    """If the baseline request comes back non-2xx (e.g. the owner's own
-    token unexpectedly fails), stay CRITICAL rather than treat the
-    missing baseline as proof of anything."""
+def test_bola_owner_baseline_non_2xx_stays_critical_conservatively():
     c = _client(
         auth_pair=_pair(),
         responses=[
-            _fake_response(status=200, text='{"item":"bob"}'),
-            _fake_response(status=500),  # baseline: owner's token, unexpected server error
+            _fake_response(status=500),                             # owner baseline: unexpected error
+            _fake_response(status=200, text='{"item":"bob"}'),      # actor probe: 2xx
+            _fake_response(status=200),
             _fake_response(status=403),
         ],
     )
@@ -313,6 +459,91 @@ def test_bola_baseline_probe_non_2xx_stays_critical_conservatively():
     crit = [f for f in findings if f.severity == Severity.CRITICAL]
     assert len(crit) == 1
     assert crit[0].evidence["baseline_unavailable"] == "owner_status_500"
+
+
+def test_bola_unauth_probe_exception_stays_critical_conservatively():
+    c = _client(auth_pair=_pair())
+    c.request = MagicMock(side_effect=[
+        _fake_response(status=200, text='{"item":"bob"}'),  # owner baseline
+        _fake_response(status=200, text='{"item":"bob"}'),  # actor probe (== owner)
+        requests.ConnectionError("boom"),                     # unauth probe blows up
+        _fake_response(status=200),
+        _fake_response(status=403),
+    ])
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert "ConnectionError" in crit[0].evidence["unauth_probe_unavailable"]
+
+
+def test_bola_actor_control_probe_exception_stays_critical_conservatively():
+    c = _client(auth_pair=_pair())
+    c.request = MagicMock(side_effect=[
+        _fake_response(status=200, text='{"item":"owner-view"}'),   # owner baseline
+        _fake_response(status=200, text='{"item":"actor-view"}'),   # actor probe (differs from owner)
+        _fake_response(status=403),                                   # unauth blocked
+        requests.ConnectionError("boom"),                              # actor control blows up
+        _fake_response(status=200),
+        _fake_response(status=403),
+    ])
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert "ConnectionError" in crit[0].evidence["control_probe_unavailable"]
+
+
+def test_bola_actor_control_probe_non_2xx_stays_critical_conservatively():
+    c = _client(
+        auth_pair=_pair(),
+        responses=[
+            _fake_response(status=200, text='{"item":"owner-view"}'),
+            _fake_response(status=200, text='{"item":"actor-view"}'),
+            _fake_response(status=403),
+            _fake_response(status=500),   # actor control: unexpected error
+            _fake_response(status=200),
+            _fake_response(status=403),
+        ],
+    )
+    findings = bola_rule.execute(c, _op("/orders/{id}"))
+    crit = [f for f in findings if f.severity == Severity.CRITICAL]
+    assert len(crit) == 1
+    assert crit[0].evidence["control_probe_unavailable"] == "actor_own_status_500"
+
+
+# ---- BOLA: non-GET/HEAD defense-in-depth guard -----------------------------
+
+def test_bola_non_get_method_skips_diff_and_replays_only_once():
+    """Defense-in-depth: applies_to() currently restricts BOLA to GET,
+    so this is unreachable via execute() today — but `_probe_direction`
+    itself guards against ever replaying probes against a method that
+    might mutate state. On 2xx it falls straight back to CRITICAL with
+    no comparison, issuing exactly ONE request."""
+    op = _op("/orders/{id}", method="POST")
+    c = _client(response=_fake_response(status=200, text="created"))
+    findings = bola_rule._probe_direction(
+        c, op, "POST /orders/{id}",
+        actor_token="alice-token", actor_label="user_a",
+        target_id=2, target_owner_label="user_b", owner_token="bob-token",
+        actor_own_id=1, shared_patterns=[],
+    )
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
+    assert findings[0].rule_id.endswith("-CrossUserDataExposure")
+    assert findings[0].evidence["baseline_diff_skipped"] == "non_get_method:POST"
+    c.request.assert_called_once()
+
+
+def test_bola_non_get_method_no_finding_on_non_2xx():
+    op = _op("/orders/{id}", method="DELETE")
+    c = _client(response=_fake_response(status=403))
+    findings = bola_rule._probe_direction(
+        c, op, "DELETE /orders/{id}",
+        actor_token="alice-token", actor_label="user_a",
+        target_id=2, target_owner_label="user_b", owner_token="bob-token",
+        actor_own_id=1, shared_patterns=[],
+    )
+    assert findings == []
+    c.request.assert_called_once()
 
 
 # ---- FLA: applies_to -----------------------------------------------------

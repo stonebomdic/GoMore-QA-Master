@@ -267,7 +267,11 @@ gomore-qa-master.run_api_security_scan(
     auth={
         "token": "alice's bearer token",
         "alt_user_token": "bob's bearer token",
-        "bola_test_ids": {"user_a": [101, 103], "user_b": [202]}
+        "bola_test_ids": {"user_a": [101, 103], "user_b": [202]},
+        # Optional: known-shared paths (glob), e.g. resources any logged-in
+        # user may legitimately see the same way. Matches downgrade to an
+        # INFO `-DeclaredShared` finding instead of BOLA's CRITICAL verdict.
+        "bola_shared_endpoints": ["/catalog/*"]
     },
     severity_threshold="medium"
 )

@@ -47,7 +47,11 @@ $ARGUMENTS
    `auth={"token": "..."}`. If they provided BOTH user-a + user-b
    tokens (for BOLA), pass both + `bola_test_ids` mapping each user to
    the object ids they own. Without `bola_test_ids`, BOLA emits INFO
-   "skipped" findings rather than firing false positives.
+   "skipped" findings rather than firing false positives. If the user
+   already knows some paths are intentionally shared (any logged-in
+   user may see the same content), pass `bola_shared_endpoints` — a
+   list of glob patterns (e.g. `["/catalog/*"]`) — to downgrade those
+   to an INFO `-DeclaredShared` finding instead of BOLA's CRITICAL.
 
 4. **Run.** Call `run_api_security_scan(spec_url=..., auth=..., 
    categories=..., severity_threshold="medium", base_url=...,

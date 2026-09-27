@@ -355,12 +355,40 @@ def run_scan(
     auth = auth or {}
     primary_token = auth.get("token")
     alt_token = auth.get("alt_user_token")
+
+    # `bola_shared_endpoints` is a list of glob PATTERNS matched whole
+    # against `op.path` (fnmatch), not arbitrary substrings — validate
+    # eagerly rather than silently. A bad value here is dangerous, not
+    # just wrong: a bare string (e.g. "/catalog/") would iterate as a
+    # sequence of 1-char patterns, and a stray "/" or "*" pattern would
+    # `fnmatch` every single path, silently muting BOLA across the
+    # entire scan. Fail loudly instead.
+    raw_shared_endpoints = auth.get("bola_shared_endpoints")
+    if raw_shared_endpoints is not None:
+        bad = (
+            not isinstance(raw_shared_endpoints, list)
+            or not all(isinstance(p, str) and p.strip() for p in raw_shared_endpoints)
+        )
+        if bad:
+            return {
+                "error": "bad_bola_shared_endpoints",
+                "retryable": False,
+                "hint": (
+                    "auth.bola_shared_endpoints must be a list of non-empty "
+                    f"strings (glob patterns matched against the OpenAPI "
+                    f"path), got {raw_shared_endpoints!r}. A bare string is "
+                    "NOT accepted here — passed as-is it would iterate "
+                    "character-by-character and silently mute BOLA."
+                ),
+            }
+
     auth_pair: AuthPair | None = None
     if primary_token and alt_token:
         auth_pair = AuthPair(
             user_a_token=primary_token,
             user_b_token=alt_token,
             bola_test_ids=auth.get("bola_test_ids"),
+            bola_shared_endpoints=raw_shared_endpoints or [],
             fla_admin_paths=auth.get("fla_admin_paths"),
             fla_low_priv_user=auth.get("fla_low_priv_user", "user_a"),
         )

@@ -645,7 +645,16 @@ TOOL_SCHEMAS = {'get_runner_info': {'properties': {}, 'type': 'object'},
                                                                   'user_b: [...]}` '
                                                                   'listing the ids of '
                                                                   'objects each user '
-                                                                  'owns.',
+                                                                  'owns. Optionally '
+                                                                  'add '
+                                                                  '`bola_shared_endpoints` '
+                                                                  '(glob path '
+                                                                  'patterns) for '
+                                                                  'endpoints already '
+                                                                  'known to be shared '
+                                                                  '— matches downgrade '
+                                                                  'BOLA to INFO '
+                                                                  '`-DeclaredShared`.',
                                                    'properties': {'alt_user_token': {'description': 'Second '
                                                                                                     "user's "
                                                                                                     'bearer '
@@ -655,6 +664,14 @@ TOOL_SCHEMAS = {'get_runner_info': {'properties': {}, 'type': 'object'},
                                                                                                     '+ '
                                                                                                     'FLA).',
                                                                                      'type': 'string'},
+                                                                  'bola_shared_endpoints': {'description': '(glob) '
+                                                                                                           '已知登入後共享的 '
+                                                                                                           'path '
+                                                                                                           '樣式，命中降級 '
+                                                                                                           'INFO '
+                                                                                                           'DeclaredShared',
+                                                                                            'items': {'type': 'string'},
+                                                                                            'type': 'array'},
                                                                   'bola_test_ids': {'description': '{user_a: '
                                                                                                    '[ids], '
                                                                                                    'user_b: '

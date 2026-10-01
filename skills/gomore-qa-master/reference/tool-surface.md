@@ -1,11 +1,11 @@
-# gomore-qa-master — Tool Surface Cheatsheet (v0.9.4)
+# gomore-qa-master — Tool Surface Cheatsheet
 
 The 19 MCP tools currently exposed by gomore-qa-master, grouped by flow.
 One-liner + the input-schema gotchas you actually need to remember.
 
 ---
 
-## v0.9.1+ — Plan & Verify (prelude to every other flow)
+## Plan & Verify (prelude to every other flow)
 
 | Tool | Purpose | Gotchas |
 |---|---|---|
@@ -32,7 +32,7 @@ Use them as bookends around Flows 1-5. Skip for one-shot reads.
 
 | Tool | Purpose | Gotchas |
 |---|---|---|
-| `analyze_url` | Discover modules + candidate TCs from a web URL | SPA-heavy sites need `timeout_ms=30000+`; behind-login needs `auth_cookie` |
+| `analyze_url` | Discover modules + candidate TCs from a web URL | SPA-heavy sites need `timeout_ms=30000+`; behind-login needs `auth_cookie`, or `auth_storage` for localStorage-token SPAs (values support `$ENV_NAME` indirection so tokens stay out of logs) |
 | `analyze_screen` | Same but for mobile (Maestro hierarchy) | Requires Maestro CLI + a booted device |
 | `generate_test` | Generate ONE pytest test from a description + module | `filename` should be a slug, no `.py` |
 | `auto_generate_tests` | Chain `analyze_url` → `generate_test` × N | `tests_per_module` defaults to 1 — anything above 3 produces noise |
@@ -52,7 +52,7 @@ Use them as bookends around Flows 1-5. Skip for one-shot reads.
 | `init_qa_knowledge` | Scaffold project's QA knowledge directory | One-shot setup |
 | `get_qa_context` | Read methodology + domain knowledge | `section` filter narrows; bilingual (`QA_LANG=en` or `zh-tw`) |
 
-## v0.8 — OWASP API Security Scanner
+## OWASP API Security Scanner
 
 | Tool | Purpose | Gotchas |
 |---|---|---|
@@ -85,8 +85,8 @@ If your host's MCP wiring drops a tool (e.g. truncated tool list in
 some clients), you can fall back to the CLI:
 
 ```bash
-# Direct module-level invocation
-python -m gomore_qa_master.tools.runner list_tests
+# Direct function invocation (the tools package has no CLI entrypoint)
+python -c "from gomore_qa_master.tools.runner import list_tests; print(list_tests())"
 ```
 
 But MCP-first is always preferred when the host supports it — the

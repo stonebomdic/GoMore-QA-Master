@@ -1,13 +1,13 @@
 {
   "name": "gomore-qa-master",
   "version": "0.9.8",
-  "description": "AI 測試大師 — run, generate, debug, and harden software tests via gomore-qa-master's MCP tools. Includes the v0.7 AI Visual Challenge Solver (reCAPTCHA / hCaptcha) and the v0.8 OWASP API Security Top 10 scanner. Same skill folder loads in Claude Code, Codex, OpenClaw, and Hermes.",
+  "description": "AI 測試大師 — run, generate, debug, and harden software tests via gomore-qa-master's MCP tools. Includes the OWASP API Security Top 10 scanner and a bilingual QA knowledge layer. Same skill folder loads in Claude Code, Codex, OpenClaw, and Hermes.",
   "author": {
     "name": "Jack Kao",
     "url": "https://github.com/kao273183"
   },
-  "homepage": "https://github.com/kao273183/gomore-qa-master",
-  "repository": "https://github.com/kao273183/gomore-qa-master",
+  "homepage": "https://github.com/stonebomdic/GoMore-QA-Master",
+  "repository": "https://github.com/stonebomdic/GoMore-QA-Master",
   "license": "MIT",
   "keywords": [
     "qa",
@@ -16,8 +16,7 @@
     "playwright",
     "owasp",
     "api-security",
-    "mcp",
-    "captcha"
+    "mcp"
   ],
   "commands": "./skills/gomore-qa-master/commands",
   "skills": "./skills"

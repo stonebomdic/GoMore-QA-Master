@@ -512,6 +512,57 @@ def test_generate_test_form_module_fills_fields(runner, monkeypatch, tmp_path):
     assert "#submit" in content
 
 
+def test_generate_test_implicit_form_module_fills_one_field_and_presses_enter(runner, monkeypatch, tmp_path):
+    """`analyzer._build_modules`'s implicit_form_0（metadata.implicit=True）
+    must NOT go through `_render_form_test`'s fill-every-field +
+    click-submit flow — there's no enclosing <form>/submit button. It
+    should fill the first text/search field and press Enter instead."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [
+                {"label": "關鍵字", "selector": "#q", "type": "text", "required": False},
+                {"label": "狀態", "selector": "#status", "type": "select", "required": False},
+            ],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 2},
+        "candidate_tcs": ["輸入關鍵字後按 Enter 應觸發查詢／過濾"],
+    }
+    runner.generate_test("desc", "test_search.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_search.py").read_text()
+    ast.parse(content)
+    assert 'page.locator(\'#q\').press("Enter")' in content
+    # Must only fill the ONE target field, not every field in the module —
+    # the select (#status) must never be touched (no .select_option call).
+    assert "#status" not in content
+    assert ".select_option" not in content
+    assert content.count(".fill(") == 1
+
+
+def test_generate_test_implicit_form_clear_description_fills_empty_string(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [{"label": "關鍵字", "selector": "#q", "type": "text", "required": False}],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 1},
+        "candidate_tcs": ["清空輸入應還原列表"],
+    }
+    runner.generate_test("清空輸入應還原列表", "test_clear.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_clear.py").read_text()
+    ast.parse(content)
+    assert "page.locator('#q').fill('')" in content
+    assert 'page.locator(\'#q\').press("Enter")' in content
+
+
 def test_generate_test_generic_module_renders_container(runner, monkeypatch, tmp_path):
     monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
     module = {"kind": "widget", "name": "Cart", "selectors": {"container": "#cart"}}

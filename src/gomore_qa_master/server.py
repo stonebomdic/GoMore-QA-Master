@@ -326,6 +326,12 @@ def _pick_form_api(url: str, module: dict, endpoints: list[dict]) -> dict | None
     """
     if module.get("kind") != "form":
         return None
+    if (module.get("metadata") or {}).get("implicit"):
+        # analyzer._build_modules's implicit_form_0 (fields outside any
+        # <form>, e.g. a bare search box) has no real submit action to
+        # match against — there's no button click to attach a response
+        # assertion to, so don't even try the heuristic below.
+        return None
     origin = urlparse(url).hostname
     for ep in endpoints:
         if ep.get("method") not in ("POST", "PUT") or ep.get("host") != origin:

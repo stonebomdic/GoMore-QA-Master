@@ -478,7 +478,17 @@ class PytestPlaywrightRunner(TestRunner):
         # If caller hands us a module from analyze_url, render a runnable
         # skeleton with concrete selectors instead of a `# TODO` stub.
         if isinstance(module, dict) and module.get("kind") == "form":
-            content = self._render_form_test(description, slug, url, module, business_context)
+            if (module.get("metadata") or {}).get("implicit"):
+                # `analyzer._build_modules`'s implicit_form_0: fields that
+                # live outside any <form> (search/filter bars). There's no
+                # submit button and no real validation semantics — fill
+                # one field, press Enter. Reusing `_render_form_test`
+                # would fill every field and look for a submit button
+                # that doesn't exist (review: "implicit form 的 render
+                # 語意對不上").
+                content = self._render_implicit_form_test(description, slug, url, module, business_context)
+            else:
+                content = self._render_form_test(description, slug, url, module, business_context)
         elif isinstance(module, dict):
             content = self._render_generic_module_test(description, slug, url, module, business_context)
         else:
@@ -660,6 +670,59 @@ class PytestPlaywrightRunner(TestRunner):
             f"{submit_body}\n"
             + (f"{tc_block}\n" if tc_block else "")
             + assertion_block
+            + _OVERFLOW_HINT
+        )
+
+    def _render_implicit_form_test(self, description: str, slug: str, url: str | None, module: dict, business_context: str | None = None) -> str:
+        """Renders `analyzer._build_modules`'s `implicit_form_0` module —
+        fields that live outside any `<form>` (bare search/filter inputs
+        next to a data table). There's no submit button and the fields
+        were never validated as a single unit, so this intentionally
+        does NOT reuse `_render_form_test`'s fill-every-field +
+        click-submit flow: it fills one field (preferring a text/search
+        type — that's what a filter bar actually is) and presses Enter,
+        which is how an implicit "submission" actually happens here.
+        """
+        sel = module.get("selectors") or {}
+        raw_fields = sel.get("fields") or []
+        fields = [
+            f for f in raw_fields
+            if f.get("selector") and (f.get("type") or "").lower() not in _NON_FILLABLE_FIELD_TYPES
+        ]
+        target = next(
+            (f for f in fields if (f.get("type") or "").lower() in ("text", "search")),
+            fields[0] if fields else None,
+        )
+
+        is_clear_variant = "清空" in (description or "")
+        if target is not None:
+            target_selector = target["selector"]
+            kind = (target.get("type") or "").lower()
+            value = "" if is_clear_variant else _SAMPLE_VALUES.get(kind, "test value")
+            action_body = (
+                f"    page.locator({target_selector!r}).fill({value!r})\n"
+                f"    page.locator({target_selector!r}).press(\"Enter\")"
+            )
+        else:
+            action_body = "    # No fillable fields detected"
+
+        tcs = module.get("candidate_tcs") or []
+        tc_block = "\n".join(f"    # TC: {tc}" for tc in tcs[:3])
+        goto_url = url or "https://example.com"
+        bc = self._business_context_block(business_context)
+        module_label = _sanitize_docstring_text(str(module.get("name", "(unnamed)")))
+        return (
+            f'"""Auto-generated from analyze_url module: {module_label} '
+            '(kind=form, implicit=True)"""\n'
+            "from playwright.sync_api import Page, expect\n\n\n"
+            f"def test_{slug}(page: Page):\n"
+            f"    {description!r}\n"
+            f"{bc}"
+            f"    page.goto({goto_url!r})\n"
+            f"{action_body}\n"
+            + (f"{tc_block}\n" if tc_block else "")
+            + "    # TODO: 補上實際斷言，例如：\n"
+              "    # expect(page.locator(...)).to_have_count(...)\n"
             + _OVERFLOW_HINT
         )
 

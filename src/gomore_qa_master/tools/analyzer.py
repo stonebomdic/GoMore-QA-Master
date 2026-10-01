@@ -332,16 +332,62 @@ _DOM_PROBE_JS = r"""
   // fallback), de-duped so the same element is never classified twice —
   // native/aria elements are tracked in `seenTableEls` before the next
   // tier runs, so a lower-priority tier simply skips anything already
-  // claimed. gwp-admin-style Tailwind back offices render data tables as
-  // plain <table> (the common case) but some ship ARIA grids, and some
-  // ship neither — just N repeated sibling rows (divs) — hence the
-  // fallback tier.
+  // claimed (including anything *nested inside* an already-claimed
+  // element — see `insideSeen` below). gwp-admin-style Tailwind back
+  // offices render data tables as plain <table> (the common case) but
+  // some ship ARIA grids, and some ship neither — just N repeated
+  // sibling rows (divs) — hence the fallback tier.
   const seenTableEls = new Set();
   const tables = [];
 
+  // Reviewer-found false positives (real Chromium repro): a `<select>`'s
+  // ≥4 `<option>`s, an SVG bar chart's ≥4 `<rect>`s, a ≥4-button toolbar,
+  // and an `<article>`'s ≥4 `<p>`s all pattern-match "≥4 same-signature
+  // children" without being a data table. `select`/`datalist`/`svg` are
+  // excluded as containers outright (closest() below); leaf-ish row tags
+  // (plus anything in the SVG namespace) are excluded per-row regardless
+  // of container.
+  const LEAF_ROW_TAGS = new Set(['OPTION', 'P', 'SPAN', 'BUTTON', 'A', 'BR', 'HR']);
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const isLeafish = (el) => LEAF_ROW_TAGS.has(el.tagName) || el.namespaceURI === SVG_NS;
+  // A real data row either has internal structure (≥2 cell-like children)
+  // or carries its own text (e.g. a flat `<div class="card">label</div>`
+  // row) — a leaf-tagged element never qualifies even if both are true.
+  const looksLikeRow = (el) => !isLeafish(el) && (el.children.length >= 2 || txt(el).length > 0);
+
+  // Containers that are themselves a different, already-handled widget
+  // type (real table, nav, list, select, svg, or another ARIA
+  // table/grid/listbox/menu/tablist/nav) are never candidates for the
+  // repeated-fallback tier — this also catches an ARIA grid's internal
+  // `rowgroup` wrapper, which otherwise independently pattern-matches
+  // "≥4 same-signature [role=row] children" and would double-count the
+  // same grid as both "aria" and "repeated".
+  const REPEATED_EXCLUDE_SELECTOR =
+    'table, nav, ul, ol, select, datalist, svg, ' +
+    '[role="table"], [role="grid"], [role="treegrid"], [role="listbox"], ' +
+    '[role="menu"], [role="tablist"], [role="navigation"]';
+
+  // Elements with no id / data-testid / name / aria-label fall back to a
+  // bare tag-name selector (`sel()`'s last resort) — e.g. plain `"div"`.
+  // That's useless (and actively dangerous: Playwright's strict-mode
+  // locator throws on a non-unique match) as a selector for a *detected*
+  // widget, so the repeated-fallback tier refuses to emit one at all
+  // rather than hand back a selector nobody can safely click.
+  const hasStableSelector = (el) =>
+    Boolean(
+      el.id ||
+      el.getAttribute('data-testid') ||
+      (el.tagName === 'INPUT' && el.getAttribute('name')) ||
+      el.getAttribute('aria-label')
+    );
+
+  // Climbs at most 3 ancestor levels looking for a preceding heading —
+  // unbounded climbing previously walked all the way to a page-level H1
+  // and attributed it to every table on the page.
   const nearbyHeading = (el) => {
     let node = el;
-    while (node) {
+    let depth = 0;
+    while (node && depth < 3) {
       let sib = node.previousElementSibling;
       while (sib) {
         if (/^H[1-6]$/.test(sib.tagName) || sib.getAttribute('role') === 'heading') {
@@ -351,6 +397,7 @@ _DOM_PROBE_JS = r"""
         sib = sib.previousElementSibling;
       }
       node = node.parentElement;
+      depth++;
       if (!node || node === document.body) break;
     }
     return '';
@@ -366,21 +413,31 @@ _DOM_PROBE_JS = r"""
     return nearbyHeading(el);
   };
 
-  // a. native <table>
+  // a. native <table>. Uses the table-specific DOM API (`.caption`,
+  // `.tHead`, `.tBodies`) instead of descendant selectors like
+  // `querySelectorAll('tbody tr')` — those are *this table's own*
+  // caption/head/body per spec (never reach into a nested <table> inside
+  // a cell), whereas a descendant selector would double-count a nested
+  // table's rows/headers as this table's.
   [...document.querySelectorAll('table')].forEach((el) => {
     seenTableEls.add(el);
-    const caption = el.querySelector('caption');
-    const headers = [...el.querySelectorAll('thead th')].map(txt).filter(Boolean).slice(0, 20);
-    const bodyRows = [...el.querySelectorAll('tbody tr')];
-    const firstRow = bodyRows[0] || el.querySelector('tr');
+    const theadEl = el.tHead;
+    const headers = theadEl
+      ? [...theadEl.querySelectorAll(':scope > tr > th')].map(txt).filter(Boolean).slice(0, 20)
+      : [];
+    const bodyRows = el.tBodies.length
+      ? [...el.tBodies].flatMap(tb => [...tb.rows])
+      : [...el.rows].filter(r => !theadEl || !theadEl.contains(r));
+    const firstRow = bodyRows[0] || el.rows[0] || null;
     tables.push({
       index: tables.length,
       selector: sel(el),
-      label: tableLabel(el, caption),
+      label: tableLabel(el, el.caption),
       headers,
       column_count: headers.length || (firstRow ? firstRow.children.length : 0),
       row_count: bodyRows.length,
       detection: 'native',
+      selector_unique: hasStableSelector(el),
     });
   });
 
@@ -390,28 +447,43 @@ _DOM_PROBE_JS = r"""
     seenTableEls.add(el);
     const headers = [...el.querySelectorAll('[role="columnheader"]')].map(txt).filter(Boolean).slice(0, 20);
     const rows = [...el.querySelectorAll('[role="row"]')]
-      .filter(r => !r.querySelector(':scope > [role="columnheader"]') && r.getAttribute('role') !== 'columnheader');
+      .filter(r => !r.querySelector(':scope > [role="columnheader"]'));
+    const firstDataRow = rows[0] || null;
+    const column_count = headers.length || (
+      firstDataRow
+        ? firstDataRow.querySelectorAll(':scope > [role="cell"], :scope > [role="gridcell"]').length
+        : 0
+    );
     tables.push({
       index: tables.length,
       selector: sel(el),
       label: tableLabel(el, null),
       headers,
-      column_count: headers.length,
+      column_count,
       row_count: rows.length,
       detection: 'aria',
+      selector_unique: hasStableSelector(el),
     });
   });
 
   // c. fallback: ≥4 repeated same-signature (tagName + sorted classList)
-  // children in one container, skipping table/nav/ul/ol internals and
-  // SCRIPT/STYLE. Signature grouping keeps us from matching an
-  // unrelated mix of siblings (e.g. a header + N cards) as "the rows".
+  // children in one container, skipping already-claimed widget types
+  // (`REPEATED_EXCLUDE_SELECTOR`) and leaf-ish rows (`looksLikeRow`).
+  // Signature grouping keeps us from matching an unrelated mix of
+  // siblings (e.g. a header + N cards) as "the rows".
   const signature = (el) => el.tagName + '|' + [...el.classList].sort().join('.');
+  const insideSeen = (el) => {
+    for (const s of seenTableEls) {
+      if (s !== el && s.contains(el)) return true;
+    }
+    return false;
+  };
   const repeatedCandidates = [];
   [...document.querySelectorAll('body *')].forEach((container) => {
     if (container.tagName === 'SCRIPT' || container.tagName === 'STYLE') return;
-    if (seenTableEls.has(container)) return;
-    if (container.closest('table, nav, ul, ol')) return;
+    if (seenTableEls.has(container) || insideSeen(container)) return;
+    if (container.closest(REPEATED_EXCLUDE_SELECTOR)) return;
+    if (!hasStableSelector(container)) return;
     const children = [...container.children].filter(
       c => c.tagName !== 'SCRIPT' && c.tagName !== 'STYLE'
     );
@@ -424,12 +496,26 @@ _DOM_PROBE_JS = r"""
     });
     let best = null;
     groups.forEach((group) => {
-      if (group.length >= 4 && (!best || group.length > best.length)) best = group;
+      if (group.length >= 4 && group.every(looksLikeRow) && (!best || group.length > best.length)) {
+        best = group;
+      }
     });
     if (best) repeatedCandidates.push({ container, rows: best });
   });
+  // Highest row-count first, then greedily skip any candidate nested
+  // inside (or wrapping) one already picked — otherwise a 10-row list
+  // whose rows are themselves ≥4-cell containers would surface as both
+  // "the list" AND "each row" as separate table modules.
   repeatedCandidates.sort((a, b) => b.rows.length - a.rows.length);
-  repeatedCandidates.slice(0, 5).forEach((rc) => {
+  const pickedRepeated = [];
+  for (const rc of repeatedCandidates) {
+    if (pickedRepeated.some(p =>
+      p.container.contains(rc.container) || rc.container.contains(p.container)
+    )) continue;
+    pickedRepeated.push(rc);
+    if (pickedRepeated.length >= 5) break; // bounded like navs/ctas/layout_warnings below
+  }
+  pickedRepeated.forEach((rc) => {
     seenTableEls.add(rc.container);
     tables.push({
       index: tables.length,
@@ -439,15 +525,22 @@ _DOM_PROBE_JS = r"""
       column_count: 0,
       row_count: rc.rows.length,
       detection: 'repeated',
+      selector_unique: true, // guaranteed by the hasStableSelector() guard above
     });
   });
 
   // Fields that live outside any <form> — search boxes / filter bars in
   // gwp-admin-style back offices are frequently bare inputs next to a
   // data table, not wrapped in <form>, so the form-scoped collector above
-  // never sees them.
+  // never sees them. Also excludes anything inside an already-detected
+  // table/grid (e.g. a per-row selection checkbox) — that's the table's
+  // concern, not a standalone filter field — and de-dupes by selector so
+  // a non-unique selector (e.g. several checkboxes all falling back to
+  // the bare "input" tag) isn't repeated N times.
+  const seenStandaloneSelectors = new Set();
   const standalone_fields = [...document.querySelectorAll('input:not([type=hidden]), textarea, select')]
     .filter(el => !el.closest('form'))
+    .filter(el => !el.closest('table, [role="grid"], [role="table"], [role="treegrid"]'))
     .filter(el => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) return false;
@@ -461,6 +554,11 @@ _DOM_PROBE_JS = r"""
       type: el.tagName === 'INPUT' ? (el.type || 'text') : el.tagName.toLowerCase(),
       required: el.required || el.getAttribute('aria-required') === 'true',
     }))
+    .filter(f => {
+      if (seenStandaloneSelectors.has(f.selector)) return false;
+      seenStandaloneSelectors.add(f.selector);
+      return true;
+    })
     .slice(0, 30);
 
   // Layout warnings: visible elements whose content overflows their container.
@@ -537,18 +635,21 @@ def _table_candidate_tcs(headers: list[str], detection: str) -> list[str]:
 def _implicit_form_candidate_tcs(fields: list[dict]) -> list[str]:
     """Candidate TCs for the aggregated `standalone_fields` module.
 
-    Mirrors the native-form TCs' shape (required-field / format checks)
-    but deliberately excludes any "送出/提交" (submit) wording — these
-    fields have no enclosing <form>/submit button, so the "submission"
-    is implicit (Enter key, live filter, etc.), not a button click.
+    Deliberately excludes two kinds of wording that native-form TCs use:
+      - "送出/提交"（submit）— these fields have no enclosing <form>/submit
+        button; the "submission" is implicit (Enter key, live filter,
+        etc.), not a button click.
+      - "只填其他欄位、X 留空"（single-field-empty）— reviewer-flagged
+        conflict: `runners/pytest_playwright._extract_single_empty_label`
+        pattern-matches that exact "留空" phrasing to render a
+        fill-everything-but-X test, which contradicts "忽略該條件"
+        (implicit filters just ignore an absent condition, they don't
+        validate required-ness) and doesn't match how
+        `_render_implicit_form_test` actually renders (fill one field,
+        press Enter).
     """
-    required = [f for f in fields if f.get("required")]
     has_email = any((f.get("type") or "").lower() == "email" for f in fields)
-
     tcs: list[str] = ["輸入關鍵字後按 Enter 應觸發查詢／過濾"]
-    for f in required[:3]:
-        label = f.get("label") or f.get("selector") or "field"
-        tcs.append(f"只填其他欄位、{label} 留空，應視為忽略該條件或顯示提示")
     if has_email:
         tcs.append("Email 欄位填入格式錯誤的字串（無 @），應顯示格式錯誤")
     tcs.append("清空輸入應還原列表")
@@ -663,6 +764,7 @@ def _build_modules(structure: dict) -> list[dict]:
                 "column_count": t.get("column_count"),
                 "row_count": t.get("row_count"),
                 "detection": detection,
+                "selector_unique": t.get("selector_unique", True),
             },
             "candidate_tcs": _table_candidate_tcs(headers, detection),
         })

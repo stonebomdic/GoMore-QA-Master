@@ -55,7 +55,38 @@ def test_native_table_produces_table_module():
         "column_count": 3,
         "row_count": 50,
         "detection": "native",
+        "selector_unique": True,
     }
+
+
+def test_table_selector_unique_defaults_true_when_js_omits_it():
+    """Older/未升級的 JS probe 輸出不帶 selector_unique 時，Python 端要給
+    一個安全預設值（True），而不是讓 KeyError 炸掉或默默變 None。"""
+    structure = {
+        "tables": [
+            {
+                "index": 0, "selector": "#t", "label": "T",
+                "headers": [], "column_count": 0, "row_count": 1,
+                "detection": "native",
+            }
+        ],
+    }
+    modules = _build_modules(structure)
+    assert _table_modules(modules)[0]["metadata"]["selector_unique"] is True
+
+
+def test_table_selector_unique_false_is_propagated():
+    structure = {
+        "tables": [
+            {
+                "index": 0, "selector": "div", "label": "T",
+                "headers": [], "column_count": 0, "row_count": 1,
+                "detection": "native", "selector_unique": False,
+            }
+        ],
+    }
+    modules = _build_modules(structure)
+    assert _table_modules(modules)[0]["metadata"]["selector_unique"] is False
 
 
 def test_native_table_name_is_slugged_from_label():
@@ -239,7 +270,7 @@ def test_implicit_form_candidate_tcs_exclude_submit_wording():
     assert "清空" in joined
 
 
-def test_implicit_form_required_field_tc_mentions_label():
+def test_implicit_form_email_tc_present_when_email_field_exists():
     structure = {
         "standalone_fields": [
             {"label": "Email", "selector": "#email", "type": "email", "required": True},
@@ -249,6 +280,24 @@ def test_implicit_form_required_field_tc_mentions_label():
     f = _form_modules(modules)[0]
     joined = "\n".join(f["candidate_tcs"])
     assert "Email" in joined
+
+
+def test_implicit_form_candidate_tcs_exclude_single_field_empty_wording():
+    """「只填其他欄位、X 留空」這類措辭會被
+    `runners/pytest_playwright._extract_single_empty_label` 誤判成要渲染
+    fill-everything-but-X 的 TC——implicit form 沒有這種渲染路徑（只填
+    第一個欄位後按 Enter），所以 candidate_tcs 不該出現「留空」字樣，
+    即使欄位是 required。"""
+    structure = {
+        "standalone_fields": [
+            {"label": "關鍵字", "selector": "#q", "type": "text", "required": True},
+            {"label": "狀態", "selector": "#status", "type": "select", "required": True},
+        ],
+    }
+    modules = _build_modules(structure)
+    f = _form_modules(modules)[0]
+    joined = "\n".join(f["candidate_tcs"])
+    assert "留空" not in joined
 
 
 # ---------------------------------------------------------------------------

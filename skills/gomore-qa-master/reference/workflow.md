@@ -67,7 +67,12 @@ run_tests(filter="<new_test_slug>")  # verify the generated test runs
   login. Data-table pages (admin back offices etc.) now produce
   `table` modules instead of 0 — if a page still looks empty despite
   visibly having a list/grid, it may be behind an SPA render delay
-  rather than a detection gap.
+  rather than a detection gap. The `detection: "repeated"` tier
+  (no native `<table>` / ARIA grid found) is a heuristic guess at
+  div-based row structures — it only emits a module when the
+  container has a stable selector (id/data-testid/name/aria-label),
+  so some repeated-looking blocks may still be skipped rather than
+  risk a non-unique Playwright locator.
 - Modules look wrong (e.g. login form not detected as "form") → the
   module classifier missed it. Surface the raw output and let the
   user choose which module to feed to `generate_test`.

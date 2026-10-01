@@ -348,10 +348,11 @@ def _pick_form_api(url: str, module: dict, endpoints: list[dict]) -> dict | None
 
 def _collect_page_tables(modules: list[dict]) -> list[dict]:
     """Visible native `table` modules with analysis-time `row_count > 0`,
-    reduced to just the one field `PytestPlaywrightRunner
+    reduced to just the two fields `PytestPlaywrightRunner
     ._render_implicit_form_test`'s commented-out cross-module hint
-    needs (`row_count`) — kept minimal on purpose so it can't be mistaken
-    for a full table-module payload by anything reading `module["page_tables"]`.
+    needs (`row_count`, `selector`) — kept minimal on purpose so it can't
+    be mistaken for a full table-module payload by anything reading
+    `module["page_tables"]`.
 
     Why this exists at all: "搜尋 → 列數變化" is a real, common assertion
     a user would want, but generating it as a LIVE assertion is fail-open
@@ -359,12 +360,21 @@ def _collect_page_tables(modules: list[dict]) -> list[dict]:
     may render a "no data" row instead of truly 0 rows, either of which
     would redden a freshly generated test with nothing wrong in the app.
     So the renderer only ever emits it pre-commented; this just supplies
-    the row_count fact it needs to do that.
+    the facts it needs to do that. `selector` (Opus review round, S2) is
+    the ACTUAL table's selector observed at analysis time — the hint
+    previously hardcoded `'table'`, which silently breaks the moment a
+    page has more than one `<table>` or the table isn't selected by the
+    bare tag at all (an id/data-testid-qualified selector, `.first` on
+    the wrong table, etc.).
 
     `detection != "native"` (aria/repeated) and `visible is False` tables
     are both excluded — aria/repeated row locators aren't reliable enough
     to assert on cross-module either, and a hidden table's row_count
-    isn't a fact about what the user will actually see.
+    isn't a fact about what the user will actually see. `row_count`'s
+    `isinstance(..., bool)` exclusion mirrors
+    `PytestPlaywrightRunner._render_table_body`'s own `has_rows` guard —
+    `bool` is an `int` subclass in Python, so a stray boolean must not
+    satisfy "> 0" (Opus review round, S6).
     """
     out: list[dict] = []
     for m in modules:
@@ -378,8 +388,10 @@ def _collect_page_tables(modules: list[dict]) -> list[dict]:
         if md.get("visible") is False:
             continue
         row_count = md.get("row_count")
-        if isinstance(row_count, int) and row_count > 0:
-            out.append({"row_count": row_count})
+        if isinstance(row_count, int) and not isinstance(row_count, bool) and row_count > 0:
+            selectors = m.get("selectors")
+            selector = selectors.get("container") if isinstance(selectors, dict) else None
+            out.append({"row_count": row_count, "selector": selector})
     return out
 
 

@@ -113,6 +113,81 @@ def test_select_candidate_tcs_noop_when_no_happy_path_exists():
     assert server._select_candidate_tcs(candidates, 1) == candidates
 
 
+# ---- _collect_page_tables — implicit-form 跨模組註解提示所需資訊 ----------
+
+
+def test_collect_page_tables_includes_visible_native_table_with_rows():
+    modules = [
+        {
+            "kind": "table",
+            "selectors": {"container": "#users-table"},
+            "metadata": {"detection": "native", "row_count": 7, "visible": True},
+        },
+    ]
+    assert server._collect_page_tables(modules) == [
+        {"row_count": 7, "selector": "#users-table"}
+    ]
+
+
+def test_collect_page_tables_excludes_hidden_table():
+    modules = [
+        {
+            "kind": "table",
+            "selectors": {"container": "#t"},
+            "metadata": {"detection": "native", "row_count": 7, "visible": False},
+        },
+    ]
+    assert server._collect_page_tables(modules) == []
+
+
+def test_collect_page_tables_excludes_non_native_detection():
+    modules = [
+        {
+            "kind": "table",
+            "selectors": {"container": "[role=grid]"},
+            "metadata": {"detection": "aria", "row_count": 7, "visible": True},
+        },
+        {
+            "kind": "table",
+            "selectors": {"container": "#cards"},
+            "metadata": {"detection": "repeated", "row_count": 7, "visible": True},
+        },
+    ]
+    assert server._collect_page_tables(modules) == []
+
+
+def test_collect_page_tables_excludes_zero_row_count():
+    modules = [
+        {
+            "kind": "table",
+            "selectors": {"container": "#t"},
+            "metadata": {"detection": "native", "row_count": 0, "visible": True},
+        },
+    ]
+    assert server._collect_page_tables(modules) == []
+
+
+def test_collect_page_tables_excludes_bool_row_count():
+    """S6: `isinstance(True, int)` is `True` in Python — a stray boolean
+    `row_count` must not be treated as a positive row count."""
+    modules = [
+        {
+            "kind": "table",
+            "selectors": {"container": "#t"},
+            "metadata": {"detection": "native", "row_count": True, "visible": True},
+        },
+    ]
+    assert server._collect_page_tables(modules) == []
+
+
+def test_collect_page_tables_ignores_non_table_modules():
+    modules = [
+        {"kind": "form", "selectors": {}, "metadata": {}},
+        {"kind": "cta", "selectors": {}, "metadata": {}},
+    ]
+    assert server._collect_page_tables(modules) == []
+
+
 # ---- _auto_generate_tests — orchestration ----------------------------------
 
 

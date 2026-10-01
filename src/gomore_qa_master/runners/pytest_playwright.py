@@ -760,24 +760,56 @@ class PytestPlaywrightRunner(TestRunner):
             + _OVERFLOW_HINT
         )
 
-    def _render_existence_skeleton_body(self, sel: dict, metadata: dict) -> str:
+    def _render_existence_skeleton_body(
+        self, sel: dict, metadata: dict, *, label_text: str | None = None,
+    ) -> str:
         """Shared body for a form/cta/table module whose analyzer-time
         `metadata.visible` is strictly `False` — e.g. the cancel/confirm
         buttons and empty `<form>` inside a closed logout-confirm
-        `<dialog>`, or a collapsed sidebar's logout cta (gwp-admin
-        /users real-site regression: 9 筆產出 5 綠 4 紅, all 4 reds this
-        exact shape). Rendering a click/fill/to_be_visible against an
+        `<dialog>`, or an off-canvas (`display:none` / fully offscreen —
+        see `isVisible()`'s docstring in analyzer.py for exactly what
+        does and doesn't count) logout cta (gwp-admin /users real-site
+        regression: 9 筆產出 5 綠 4 紅, all 4 reds this exact shape).
+        Rendering a click/fill/to_be_visible against an
         element that is not actually visible when the test runs is
         guaranteed-red; instead this asserts only that the element is
         attached to the DOM (true at analysis time — analyzer's probe
         did see it) and leaves a TODO for whoever adds the real trigger
         step. Deliberately no click/fill/to_be_visible anywhere here.
+
+        Opus review round (I3): a non-unique selector degraded to plain
+        `.first` (e.g. `page.locator('button').first`) makes
+        `to_be_attached()` trivially true against ANY matching element on
+        the page, not specifically the one the analyzer actually found —
+        an assertion that can never fail is worse than no assertion.
+        `metadata.label_text` (cta modules only) is analysis-time
+        observed text, so when it's available AND the selector isn't
+        already unique, this locates by `.filter(has_text=...)` instead
+        of `.first` — a plain DOM/text containment check, which (unlike
+        `get_by_role`) still matches elements excluded from the
+        accessibility tree by `display:none`. When no such text hint
+        exists (table modules, or a cta with no `label_text`) and the
+        selector is non-unique, the degradation comment is upgraded to
+        spell out that the assertion isn't discriminative at all.
         """
         target_sel = sel.get("container") or sel.get("trigger") or "body"
-        locator_expr, comment = _container_locator_expr(target_sel, metadata)
+        non_unique = _selector_is_non_unique(target_sel, metadata)
+        has_label = isinstance(label_text, str) and bool(label_text)
+
+        if has_label and non_unique:
+            target_expr = f"page.locator({target_sel!r}).filter(has_text={label_text!r}).first"
+            comment = ""
+        else:
+            target_expr, comment = _container_locator_expr(target_sel, metadata)
+            if non_unique:
+                comment += (
+                    "    # 此存在性斷言不具辨識力（selector 不唯一，且沒有可用的文字線索可過濾）"
+                    "——對同類的任何元素都會通過，請補 data-testid 讓這個元素能被精準定位\n"
+                )
+
         return (
             f"{comment}"
-            f"    target = {locator_expr}\n"
+            f"    target = {target_expr}\n"
             "    expect(target).to_be_attached()\n"
             "    # TODO: 此元素載入時不可見（例如在關閉的 dialog 內），先補觸發步驟再斷言 visible／互動\n"
         )
@@ -871,15 +903,21 @@ class PytestPlaywrightRunner(TestRunner):
         # 能直接產成活斷言——搜尋可能要額外按鈕觸發，也可能顯示「無資料」
         # 列而非 0 列，兩者都會讓這個斷言假紅。`server._auto_generate_tests`
         # 在同一頁 analysis 有 visible native table 且 row_count > 0 時，把
-        # 精簡過的 `page_tables`（只含 row_count）附加到每個 module dict
-        # 上；這裡只把它渲染成一段**註解掉**的現成程式碼，使用者確認過頁面
-        # 行為後自行解除註解。
+        # 精簡過的 `page_tables`（只含 row_count／selector）附加到每個
+        # module dict 上；這裡只把它渲染成一段**註解掉**的現成程式碼，使用
+        # 者確認過頁面行為後自行解除註解。selector 用分析時觀察到的實際
+        # table selector（Opus review round, S2）——寫死 'table' 在頁面有
+        # 多張表、或 selector 根本不是 bare tag 時會靜默選錯表。row locator
+        # 跟 `_render_table_body` 一致改用 `:scope` 覆蓋兩種真實 DOM 形狀
+        # （有無自動 tbody，S3）。
         page_tables = module.get("page_tables") or []
         if page_tables:
             row_count = page_tables[0].get("row_count")
+            table_selector = page_tables[0].get("selector") or "table"
             cross_module_hint = (
                 "    # 若本頁有資料表，可解除註解驗證搜尋過濾生效：\n"
-                "    # rows = page.locator('table').first.locator('tbody tr')\n"
+                f"    # rows = page.locator({table_selector!r}).first"
+                '.locator(":scope > tbody > tr, :scope > tr")\n'
                 f"    # expect(rows).not_to_have_count({row_count!r})\n"
             )
         else:
@@ -913,10 +951,13 @@ class PytestPlaywrightRunner(TestRunner):
 
         if kind in ("cta", "table") and _module_is_hidden(metadata):
             # metadata.visible is False（嚴格）：analyzer 掃描當下有看到這
-            # 個元素（例如關閉中 dialog 裡的按鈕、收合側欄的登出鈕），但
-            # 產測當下它不可見——click/fill/to_be_visible 一律保證紅，改用
-            # 共用的存在性骨架。
-            body = self._render_existence_skeleton_body(sel, metadata)
+            # 個元素（例如關閉中 dialog 裡的按鈕、display:none 或完全離屏
+            # 的側欄登出鈕），但產測當下它不可見——click/fill/to_be_visible
+            # 一律保證紅，改用
+            # 共用的存在性骨架。cta 有 label_text 時傳入，讓骨架能用
+            # filter(has_text=...) 取代沒有辨識力的 bare-tag .first。
+            label_text = metadata.get("label_text") if kind == "cta" else None
+            body = self._render_existence_skeleton_body(sel, metadata, label_text=label_text)
             suppress_generic_todo = True
         elif kind == "cta":
             body = self._render_cta_body(sel, metadata)
@@ -961,10 +1002,8 @@ class PytestPlaywrightRunner(TestRunner):
         conservative, fail-closed-on-false-red assertions instead of the
         old bare `to_be_visible()` + TODO.
 
-        - `detection == "native"`: `table.locator("tbody tr")` /
-          `"thead th"` — scoped to this element only (mirrors the DOM
-          probe's own `.tHead`/`.tBodies` scoping, never a page-wide
-          descendant query that could pick up an unrelated table).
+        - `detection == "native"`: row-count via a `:scope`-anchored
+          locator (see below); header check via `thead`.
         - `detection == "aria"`: `[role="row"]` / `[role="columnheader"]`
           instead.
         - `detection == "repeated"`: heuristic guess at div-based rows —
@@ -980,18 +1019,43 @@ class PytestPlaywrightRunner(TestRunner):
         loads late", so that case gets a comment instead of a real
         assertion (dangling a 100%-false-red "should be non-empty"
         assertion on an intentionally-empty table is exactly the kind of
-        assumption this feature exists to stop making).
+        assumption this feature exists to stop making). `isinstance(x,
+        bool)` is excluded even though `bool` is an `int` subclass in
+        Python — a stray boolean `row_count` must never satisfy "> 0"
+        (Opus review round, S6).
 
-        Header assertion (`to_contain_text`) only fires when `headers`
-        is non-empty — it names the literal first header text observed
-        at analysis time, which is an analysis-time fact, not a guess.
+        Native row locator (Opus review round, S3): `table.locator("tbody
+        tr")` 0-matches a table BUILT via `document.createElement` +
+        `appendChild` (no `<tbody>` — the browser only auto-inserts one
+        when PARSING an HTML string/document, never for DOM-API-
+        constructed tables) even though `el.tBodies`/`el.rows` (what the
+        analyzer's own probe reads) sees the rows fine. `":scope > tbody
+        > tr, :scope > tr"` covers both real DOM shapes.
+
+        Header assertion (Opus review round, I1+I2 — both real-Chromium
+        repros):
+          - I1: the probe's `headers` list is already `.map(txt).filter
+            (Boolean)` — `headers[0]` is the first NON-EMPTY header text,
+            but the DOM's actual first `<th>` can easily be blank (e.g. a
+            row-selection checkbox column). Asserting against "the first
+            `<th>`" specifically is a selector/content mismatch waiting
+            to happen; asserting the text appears ANYWHERE inside
+            `thead` sidesteps which `<th>` index it landed in.
+          - I2: the probe reads header text via `txt()` (`innerText`,
+            which reflects CSS like `text-transform` and converts `<br>`
+            to newlines), but Playwright's `to_contain_text` compares
+            `textContent` by default — the two diverge exactly when such
+            CSS is present. `use_inner_text=True` makes the assertion
+            compare the same way the probe read it.
         """
         container_sel = sel.get("container") or "body"
         locator_expr, comment = _container_locator_expr(container_sel, metadata)
         detection = metadata.get("detection") or "native"
         row_count = metadata.get("row_count")
         headers = metadata.get("headers") or []
-        has_rows = isinstance(row_count, int) and row_count > 0
+        has_rows = (
+            isinstance(row_count, int) and not isinstance(row_count, bool) and row_count > 0
+        )
 
         lines = [
             comment,
@@ -1001,13 +1065,16 @@ class PytestPlaywrightRunner(TestRunner):
 
         if detection == "native":
             if has_rows:
-                lines.append('    rows = table.locator("tbody tr")\n')
+                lines.append(
+                    '    rows = table.locator(":scope > tbody > tr, :scope > tr")\n'
+                )
                 lines.append("    expect(rows).not_to_have_count(0)\n")
             else:
                 lines.append("    # 分析時 0 列：請確認空狀態文案或補資料後再斷言\n")
             if headers:
                 lines.append(
-                    f'    expect(table.locator("thead th").first).to_contain_text({headers[0]!r})\n'
+                    f'    expect(table.locator("thead")).to_contain_text({headers[0]!r}, '
+                    "use_inner_text=True)\n"
                 )
         elif detection == "aria":
             if has_rows:
@@ -1017,8 +1084,8 @@ class PytestPlaywrightRunner(TestRunner):
                 lines.append("    # 分析時 0 列：請確認空狀態文案或補資料後再斷言\n")
             if headers:
                 lines.append(
-                    "    expect(table.locator('[role=\"columnheader\"]').first)"
-                    f".to_contain_text({headers[0]!r})\n"
+                    "    expect(table.locator('[role=\"columnheader\"]')"
+                    f".filter(has_text={headers[0]!r}).first).to_be_visible()\n"
                 )
         # detection == "repeated"：啟發式偵測，只留 visible 斷言——不對列
         # 數/表頭下真斷言（見本函式 docstring）。

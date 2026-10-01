@@ -7,7 +7,10 @@
 """
 from __future__ import annotations
 
+import ast
 import asyncio
+
+import pytest
 
 from gomore_qa_master import server
 
@@ -296,10 +299,13 @@ def test_auto_generate_tests_env_indirection_writes_conftest_without_literal_tok
     assert result["conftest"] == "written"
     assert "conftest_warnings" not in result
     content = (tmp_path / "conftest.py").read_text()
-    assert 'os.environ["QA_WEB_TOKEN"]' in content
+    assert ast.parse(content)
+    assert content.startswith(server._AUTH_CONFTEST_MARKER)
+    assert 'os.environ.get("QA_WEB_TOKEN")' in content
     assert "super-secret-fake-token-xyz" not in content
     assert "browser_context_args" in content
     assert "storage_state" in content
+    assert "pytest.fail(" in content  # review round 3 #10
 
 
 def test_auto_generate_tests_literal_auth_storage_value_not_written_with_warning(monkeypatch, tmp_path):
@@ -313,8 +319,9 @@ def test_auto_generate_tests_literal_auth_storage_value_not_written_with_warning
 
     assert result["conftest"] == "written"
     content = (tmp_path / "conftest.py").read_text()
+    assert ast.parse(content)
     assert "literal-fake-token-value-abc" not in content
-    assert 'os.environ["TOKEN_TOKEN"]' in content
+    assert 'os.environ.get("TOKEN_TOKEN")' in content
     assert result.get("conftest_warnings")
     assert any("TOKEN_TOKEN" in w for w in result["conftest_warnings"])
 
@@ -359,7 +366,8 @@ def test_auto_generate_tests_auth_cookie_injected_alongside_storage_with_env_ind
 
     assert result["conftest"] == "written"
     content = (tmp_path / "conftest.py").read_text()
-    assert 'os.environ["QA_SESSION_TOKEN"]' in content
+    assert ast.parse(content)
+    assert 'os.environ.get("QA_SESSION_TOKEN")' in content
     assert "session" in content
     assert "x.test" in content  # domain
 
@@ -382,5 +390,224 @@ def test_auto_generate_tests_no_tests_generated_skips_conftest(monkeypatch, tmp_
         tests_per_module=1, auth_storage={"token": "$QA_WEB_TOKEN"},
     ))
 
+    assert "conftest" not in result
+    assert not (tmp_path / "conftest.py").exists()
+
+
+# ---- review round 3 — userinfo / hostname-less URL (#1) ---------------------
+# origin 之前用 parsed.netloc 組出來，會連 "user:pass@" 一起帶進 conftest
+# （secret 落檔）且跟瀏覽器實際的 origin 對不起來。改用 scheme + hostname
+# （小寫，不含 userinfo/port）+ port（有才加）。
+
+
+def test_build_auth_conftest_userinfo_url_does_not_leak_credentials_into_origin():
+    content, warnings = server._build_auth_conftest(
+        "https://admin:s3cr3t-pw@Evil.Example.com:9443/users",
+        {"token": "$QA_WEB_TOKEN"},
+        None,
+    )
+    assert content is not None
+    ast.parse(content)
+    assert "admin" not in content
+    assert "s3cr3t-pw" not in content
+    assert "origin = 'https://evil.example.com:9443'" in content
+    assert not warnings
+
+
+def test_build_auth_conftest_hostname_none_returns_no_content_with_warning():
+    content, warnings = server._build_auth_conftest(
+        "not-a-real-url-with-no-host", {"token": "$QA_WEB_TOKEN"}, None,
+    )
+    assert content is None
+    assert warnings
+    assert any("hostname" in w for w in warnings)
+
+
+def test_auto_generate_tests_hostname_none_url_skips_conftest_without_crashing(monkeypatch, tmp_path):
+    _patch_project_roots(monkeypatch, tmp_path)
+    _patch_common_auto_generate_mocks(monkeypatch)
+
+    result = asyncio.run(server._auto_generate_tests(
+        "not-a-real-url-with-no-host", timeout_ms=15000, auth_cookie=None,
+        tests_per_module=1, auth_storage={"token": "$QA_WEB_TOKEN"},
+    ))
+
+    assert result["conftest"] == "skipped (invalid url: no hostname)"
+    assert not (tmp_path / "conftest.py").exists()
+
+
+# ---- review round 3 — env 名推導 edge cases (#6) -----------------------------
+
+
+@pytest.mark.parametrize("key", [
+    "token",
+    "access-token",
+    "1abc",
+    "",
+    "中文",
+    'token\', \'value\': \'x\'}]}]  # ',
+    "line1\nline2",
+    'q"\'`',
+])
+def test_derive_literal_env_name_always_valid_identifier_like(key):
+    used: set[str] = set()
+    name = server._derive_literal_env_name(key, used)
+    assert name.isidentifier()
+    assert name == name.upper()
+    assert name in used
+
+
+def test_derive_literal_env_name_collision_gets_numbered_suffix():
+    used: set[str] = set()
+    first = server._derive_literal_env_name("access-token", used)
+    second = server._derive_literal_env_name("access_token", used)
+    assert first != second
+    assert second.endswith("_2")
+
+
+def test_derive_literal_env_name_leading_digit_gets_auth_prefix():
+    used: set[str] = set()
+    name = server._derive_literal_env_name("1abc", used)
+    assert name.startswith("AUTH_")
+
+
+def test_derive_literal_env_name_fully_non_ascii_key_gets_numbered_fallback():
+    used: set[str] = set()
+    name = server._derive_literal_env_name("中文", used)
+    assert name.startswith("AUTH_TOKEN_")
+
+
+def test_derive_literal_env_name_empty_key_gets_numbered_fallback():
+    used: set[str] = set()
+    name = server._derive_literal_env_name("", used)
+    assert name.startswith("AUTH_TOKEN_")
+
+
+@pytest.mark.parametrize("malicious_key", [
+    'token\', \'value\': \'x\'}]}]  # ',
+    "line1\nline2",
+    'q"\'`',
+    "中文",
+    "access-token",
+    "1abc",
+    "",
+])
+def test_auto_generate_tests_malicious_auth_storage_keys_never_leak_literal_value(
+    monkeypatch, tmp_path, malicious_key,
+):
+    """惡意／邊角 key（reviewer 提供的集合）都要：產出的 conftest.py 能被
+    ast.parse，且字面值永遠不落檔。"""
+    _patch_project_roots(monkeypatch, tmp_path)
+    _patch_common_auto_generate_mocks(monkeypatch)
+    literal_value = "super-secret-literal-fake-value-zzz"
+
+    result = asyncio.run(server._auto_generate_tests(
+        "https://x.test/dashboard", timeout_ms=15000, auth_cookie=None,
+        tests_per_module=1, auth_storage={malicious_key: literal_value},
+    ))
+
+    assert result["conftest"] == "written"
+    content = (tmp_path / "conftest.py").read_text()
+    ast.parse(content)
+    assert literal_value not in content
+    assert result.get("conftest_warnings")
+
+
+# ---- review round 3 — auth_cookie 單獨帶時的回報 (#7) ------------------------
+
+
+def test_auto_generate_tests_auth_cookie_only_reports_auth_storage_required(monkeypatch, tmp_path):
+    _patch_project_roots(monkeypatch, tmp_path)
+    _patch_common_auto_generate_mocks(monkeypatch)
+
+    result = asyncio.run(server._auto_generate_tests(
+        "https://x.test/dashboard", timeout_ms=15000,
+        auth_cookie="session=$QA_SESSION_TOKEN", tests_per_module=1,
+    ))
+
+    assert result["conftest"] == "skipped (auth_storage required)"
+    assert not (tmp_path / "conftest.py").exists()
+
+
+# ---- review round 3 — conftest marker 允許覆寫自己產出的檔案 (#10) ----------
+
+
+def test_auto_generate_tests_regenerates_conftest_with_marker(monkeypatch, tmp_path):
+    """已存在的 conftest.py 若帶有我們自己的 marker（代表是上一輪
+    auto_generate_tests 產出的），允許覆寫——不然 auth_storage 換了，
+    conftest 永遠卡在舊內容。"""
+    _patch_project_roots(monkeypatch, tmp_path)
+    _patch_common_auto_generate_mocks(monkeypatch)
+    old_content = f"{server._AUTH_CONFTEST_MARKER}\n# 上一輪產出的舊內容\n"
+    (tmp_path / "conftest.py").write_text(old_content)
+
+    result = asyncio.run(server._auto_generate_tests(
+        "https://x.test/dashboard", timeout_ms=15000, auth_cookie=None,
+        tests_per_module=1, auth_storage={"token": "$QA_NEW_TOKEN"},
+    ))
+
+    assert result["conftest"] == "written"
+    new_content = (tmp_path / "conftest.py").read_text()
+    assert new_content != old_content
+    assert "QA_NEW_TOKEN" in new_content
+
+
+def test_auto_generate_tests_hand_written_conftest_without_marker_is_never_overwritten(
+    monkeypatch, tmp_path,
+):
+    _patch_project_roots(monkeypatch, tmp_path)
+    _patch_common_auto_generate_mocks(monkeypatch)
+    hand_written = "# hand-written conftest, no marker here\n"
+    (tmp_path / "conftest.py").write_text(hand_written)
+
+    result = asyncio.run(server._auto_generate_tests(
+        "https://x.test/dashboard", timeout_ms=15000, auth_cookie=None,
+        tests_per_module=1, auth_storage={"token": "$QA_WEB_TOKEN"},
+    ))
+
+    assert result["conftest"] == "skipped (exists)"
+    assert (tmp_path / "conftest.py").read_text() == hand_written
+
+
+# ---- review round 3 — generate_test 回傳 "error:" 不應算成功 (#11) ----------
+
+
+def test_auto_generate_tests_generator_error_string_counts_as_failure_not_success(
+    monkeypatch, tmp_path,
+):
+    """generator.generate_test 在 filename 驗證失敗時不會 raise，而是回傳
+    一個 "error: ..." 字串——這種情況之前被無聲當成功數進 tests_generated，
+    也可能因此誤觸發 conftest 產出門檻。"""
+    _patch_project_roots(monkeypatch, tmp_path)
+
+    async def fake_analyze_url(url, **kwargs):
+        return {
+            "url": url, "page_title": "X", "module_count": 1,
+            "api_endpoint_count": 0,
+            "modules": [{
+                "kind": "section", "name": "sec_0",
+                "selectors": {"container": "#x"}, "candidate_tcs": ["TC"],
+            }],
+            "api_endpoints": [],
+        }
+
+    monkeypatch.setattr(server.analyzer, "analyze_url", fake_analyze_url)
+    monkeypatch.setattr(server.telemetry, "log_discovered_modules", lambda *a, **k: None)
+    monkeypatch.setattr(server.telemetry, "log_generation", lambda *a, **k: None)
+    monkeypatch.setattr(
+        server.generator, "generate_test",
+        lambda **kwargs: "error: 檔名驗證失敗",
+    )
+
+    result = asyncio.run(server._auto_generate_tests(
+        "https://x.test/dashboard", timeout_ms=15000, auth_cookie=None,
+        tests_per_module=1, auth_storage={"token": "$QA_WEB_TOKEN"},
+    ))
+
+    assert result["tests_generated"] == 0
+    assert result["tests_failed"] == 1
+    assert result["tests"][0]["error"] == "error: 檔名驗證失敗"
+    assert "description" not in result["tests"][0]
+    # 一筆都沒真的成功 → 不該觸發 conftest 門檻。
     assert "conftest" not in result
     assert not (tmp_path / "conftest.py").exists()

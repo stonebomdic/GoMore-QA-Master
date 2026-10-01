@@ -190,12 +190,10 @@ def _is_bare_tag_selector(selector: object) -> bool:
     return bool(_BARE_TAG_SELECTOR_RE.fullmatch(selector))
 
 
-def _container_locator_expr(selector: str | None, metadata: dict | None) -> tuple[str, str]:
-    """Build the `page.locator(...)` expression for a module's container
-    selector, degrading to `.first` when the selector isn't guaranteed
-    unique on the page.
+def _selector_is_non_unique(selector: str, metadata: dict | None) -> bool:
+    """Decide whether `selector` is guaranteed unique on the page.
 
-    Uniqueness source of truth, in priority order:
+    Priority order:
       1. `metadata["selector_unique"]` — explicit flag from the analyzer
          (currently only `table` modules set it, from the DOM probe's
          native/aria-level uniqueness check). When present it wins over
@@ -203,6 +201,17 @@ def _container_locator_expr(selector: str | None, metadata: dict | None) -> tupl
       2. Bare-tag heuristic (`_is_bare_tag_selector`) — used for every
          other module kind (section/nav/generic/cta/dialog), which have
          no such metadata.
+    """
+    md = metadata if isinstance(metadata, dict) else {}
+    if "selector_unique" in md:
+        return not md["selector_unique"]
+    return _is_bare_tag_selector(selector)
+
+
+def _container_locator_expr(selector: str | None, metadata: dict | None) -> tuple[str, str]:
+    """Build the `page.locator(...)` expression for a module's container
+    selector, degrading to `.first` when `_selector_is_non_unique` says
+    it isn't guaranteed unique on the page.
 
     Returns (locator_expr, comment_line). `comment_line` is `""` when no
     degradation happened; otherwise a single `    # ...\n` line explaining
@@ -211,13 +220,8 @@ def _container_locator_expr(selector: str | None, metadata: dict | None) -> tupl
     """
     if not selector:
         return "page.locator('body')", ""
-    md = metadata if isinstance(metadata, dict) else {}
-    if "selector_unique" in md:
-        non_unique = not md["selector_unique"]
-    else:
-        non_unique = _is_bare_tag_selector(selector)
     base = f"page.locator({selector!r})"
-    if not non_unique:
+    if not _selector_is_non_unique(selector, metadata):
         return base, ""
     comment = (
         f"    # selector {selector!r} 在頁面上可能不唯一（bare tag 或 analyzer "
@@ -851,29 +855,54 @@ class PytestPlaywrightRunner(TestRunner):
 
     def _render_cta_body(self, sel: dict, metadata: dict) -> str:
         """`kind: "cta"` module: prefer a text-based locator over the raw
-        selector. analyze_url's cta selector is frequently a bare `button`
-        tag (any page with >1 button trips strict-mode on it) — the
-        button/link's own visible text is far more likely to be unique.
+        selector, but ONLY when the raw selector isn't already guaranteed
+        unique (review round 3 #4 — a stable `#id`/`[data-testid]`/
+        `aria-label` selector must be kept as-is: its accessible name may
+        come from `aria-label`, not innerText, so forcing
+        `get_by_role(name=label_text)` there can turn a passing test
+        red). analyze_url's cta selector is frequently a bare `button` tag
+        (any page with >1 button trips strict-mode on it) — the
+        button/link's own accessible name is far more likely to be unique
+        in that case.
 
-        - `metadata.label_text` present + tag reads as a real button
-          (`metadata.tag == "button"` or the selector itself targets
-          `[role="button"]`) → `page.get_by_role("button", name=...)`.
-        - `metadata.label_text` present otherwise → CSS `:has-text(...)`
-          appended to the raw selector (double quotes in the text are
-          escaped for the CSS string literal).
-        - No `label_text` at all → fall back to the same bare-tag/.first
-          degradation as every other module kind.
+        - `metadata.label_text` present + selector non-unique:
+            - `tag == "a"` → `get_by_role("link", name=...)`.
+            - `tag` is any other non-empty string (`"button"`, or a
+              `[role="button"]` `<div>`/`<span>`/... — analyze_url's cta
+              query only ever matches `button`, `[role="button"]`,
+              `a.button` or `a.btn`, so any non-`"a"` tag here really is
+              button-ish) → `get_by_role("button", name=...)` (review
+              round 3 #3 — matching by role instead of a CSS
+              `:has-text()` pseudo-class means a `[role=button]` `<div>`
+              can't accidentally match an ancestor the way `div:has-text`
+              used to).
+            - `tag` missing entirely (e.g. mobile cta modules from
+              `analyze_screen`, which never set `tag`) → don't guess a
+              role; `page.locator(sel).filter(has_text=label_text)`
+              instead. This is a plain Python string argument, not a CSS
+              string literal, so there's nothing to escape — a label
+              ending in a backslash or containing a newline (review
+              round 3 #2's repro) can't produce a broken selector the way
+              the old CSS `:has-text("...")` string-building did.
+        - No `label_text`, or the selector is already unique → fall back
+          to the same bare-tag/.first degradation as every other module
+          kind (and the ORIGINAL selector, untouched, when it's unique —
+          review round 3 #4: a stable `#id`/`[data-testid]`/`aria-label`
+          selector must never be swapped out for a text locator, since
+          the accessible name used for matching may come from
+          `aria-label` rather than innerText).
         """
         trigger_sel = sel.get("trigger") or sel.get("container") or "body"
         label_text = metadata.get("label_text")
-        if isinstance(label_text, str) and label_text:
-            is_button = metadata.get("tag") == "button" or 'role="button"' in str(trigger_sel)
-            if is_button:
+        has_label = isinstance(label_text, str) and bool(label_text)
+        if has_label and _selector_is_non_unique(trigger_sel, metadata):
+            tag = metadata.get("tag")
+            if tag == "a":
+                target_expr = f'page.get_by_role("link", name={label_text!r}).first'
+            elif isinstance(tag, str) and tag:
                 target_expr = f'page.get_by_role("button", name={label_text!r}).first'
             else:
-                escaped_text = label_text.replace('"', '\\"')
-                combined_sel = f'{trigger_sel}:has-text("{escaped_text}")'
-                target_expr = f"page.locator({combined_sel!r}).first"
+                target_expr = f"page.locator({trigger_sel!r}).filter(has_text={label_text!r}).first"
             return f"    target = {target_expr}\n    expect(target).to_be_visible()\n"
 
         locator_expr, comment = _container_locator_expr(trigger_sel, metadata)
@@ -893,9 +922,15 @@ class PytestPlaywrightRunner(TestRunner):
         - `open_on_load` False (the common case — a confirm/logout dialog
           that only opens after a trigger click): asserting visible would
           always fail since nothing in this generated test ever opens it.
-          Render a hidden/existence assertion instead and leave a TODO —
-          the real "does it open correctly" coverage needs a trigger step
-          this generator has no way to infer.
+          Render an existence check first (`to_be_attached()` — a bare
+          `to_be_hidden()` alone passes even on ZERO matches, which is an
+          empty assertion that proves nothing; review round 3 #5) and
+          THEN assert hidden, plus a TODO — the real "does it open
+          correctly" coverage needs a trigger step this generator has no
+          way to infer. Note for React-portal-style modals: they may not
+          be in the DOM at all until opened, but analyzer's DOM probe did
+          see this element when it built the module, so `to_be_attached()`
+          holds at generation time.
         """
         container_sel = sel.get("container") or "body"
         locator_expr, comment = _container_locator_expr(container_sel, metadata)
@@ -905,12 +940,19 @@ class PytestPlaywrightRunner(TestRunner):
                 f"    target = {locator_expr}\n"
                 "    expect(target).to_be_visible()\n"
             )
+        # `locator_expr` may already end in `.first` (non-unique selector,
+        # see `_container_locator_expr`) — don't chain a redundant second
+        # `.first` onto it (review round 3 #5).
+        first_ref = "target" if locator_expr.endswith(".first") else "target.first"
         return (
             f"{comment}"
             f"    target = {locator_expr}\n"
-            "    # dialog 預設不開啟（open_on_load=False）——需先觸發開啟才能驗證可見狀態，"
-            "TODO 補上觸發開啟的步驟\n"
-            "    expect(target.first).to_be_hidden()\n"
+            "    # dialog 預設不開啟（open_on_load=False）——先確認元素真的存在於\n"
+            "    # DOM（React portal 類 modal 可能完全不在 DOM 裡，但 analyzer 掃描\n"
+            "    # 當下有看到這個元素，attached 斷言在產生當下大致成立），再驗證\n"
+            "    # 預設是隱藏的；需先觸發開啟才能驗證可見狀態，TODO 補上觸發開啟的步驟\n"
+            f"    expect({first_ref}).to_be_attached()\n"
+            f"    expect({first_ref}).to_be_hidden()\n"
         )
 
     def codegen(self, url: str, output: str = "recorded_test.py") -> str:

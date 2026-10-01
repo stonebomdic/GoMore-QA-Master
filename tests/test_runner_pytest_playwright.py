@@ -1055,43 +1055,178 @@ def test_generate_test_cta_module_button_tag_uses_get_by_role_text(runner, monke
     assert "has-text" not in content
 
 
-def test_generate_test_cta_module_non_button_tag_uses_has_text_locator(runner, monkeypatch, tmp_path):
+# ---- review round 3 (#2/#3/#4) — cta 文字定位重做 ---------------------------
+# #2 label 結尾反斜線／含換行時，舊版把 label 塞進 CSS :has-text("...")
+#    字串字面值，Playwright 解析該 CSS 會丟 BADSTRING。
+# #3 非 button 的 [role=button] div 走 CSS :has-text(...) 會匹配所有含該
+#    文字的祖先節點，.first 選到最外層（例如 #app）—— 假綠。
+# #4 analyzer 已給出穩定 selector（#id/[data-testid]/aria-label...）時，
+#    硬改走 get_by_role(name=innerText) 會找不到元素（accessible name 不
+#    一定等於 innerText，例如 aria-label 按鈕）——綠變紅。
+#
+# 修法：tag=="a" 用 get_by_role("link", ...)；tag=="button" 或 selector 命中
+# role="button" 用 get_by_role("button", ...)；真的判斷不出 tag 時才退回
+# page.locator(sel).filter(has_text=label)（Python 字串參數，完全不碰 CSS
+# 字串跳脫）。以上三者都只在 selector 非唯一（bare tag 或
+# metadata.selector_unique=False）時才啟用；selector 本身穩定時一律保留
+# 原 selector，不管有沒有 label_text。
+
+
+def _get_by_role_call(tree):
+    return next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "get_by_role"
+    )
+
+
+def test_render_cta_label_with_trailing_backslash_and_newline_parses_cleanly(runner, monkeypatch, tmp_path):
+    """review round 3 #2 的具體重現：label 結尾反斜線、且含換行（多行
+    innerText 很常見）。新版完全不組 CSS 字串，單純靠 get_by_role(name=...)
+    的 Python 字串參數，天生不會有 CSS BADSTRING 的問題。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    tricky_label = "登出\n確認\\"
+    module = {
+        "kind": "cta",
+        "name": "cta_tricky",
+        "selectors": {"trigger": "button"},
+        "metadata": {"label_text": tricky_label, "tag": "button"},
+    }
+    runner.generate_test("desc", "test_cta_tricky.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_cta_tricky.py").read_text()
+    tree = ast.parse(content)
+    call = _get_by_role_call(tree)
+    name_kw = next(kw for kw in call.keywords if kw.arg == "name")
+    assert name_kw.value.value == tricky_label
+    assert "has-text" not in content
+
+
+def test_render_cta_div_role_button_uses_get_by_role_not_has_text(runner, monkeypatch, tmp_path):
+    """review round 3 #3 的具體重現：一個 `<div role="button">` 沒有
+    id/data-testid/aria-label 等可用屬性，analyzer 的 sel() 退回 bare tag
+    "div"（tag metadata 仍正確記成 "div"）。舊版這種非 "a" 的 tag 會走 CSS
+    :has-text(...)，.first 選到最外層祖先（假綠）；新版一律
+    get_by_role("button", ...)。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "cta",
+        "name": "cta_div_button",
+        "selectors": {"trigger": "div"},
+        "metadata": {"label_text": "確認登出", "tag": "div"},
+    }
+    runner.generate_test("desc", "test_cta_div_button.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_cta_div_button.py").read_text()
+    tree = ast.parse(content)
+    call = _get_by_role_call(tree)
+    assert call.args[0].value == "button"
+    assert "has-text" not in content
+
+
+def test_render_cta_anchor_tag_uses_get_by_role_link(runner, monkeypatch, tmp_path):
+    """tag=="a" 改用 get_by_role("link", ...)，不再是 CSS :has-text(...)。"""
     monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
     module = {
         "kind": "cta",
         "name": "cta_buy",
-        "selectors": {"trigger": "a.btn"},
+        "selectors": {"trigger": "a"},
         "metadata": {"label_text": "立即購買", "tag": "a"},
     }
     runner.generate_test("desc", "test_cta_buy.py", url="https://x.test", module=module)
     content = (tmp_path / "test_cta_buy.py").read_text()
-    ast.parse(content)
-    assert ':has-text("立即購買")' in content
-    assert "a.btn" in content
-    assert ".first" in content
-    assert "get_by_role" not in content
+    tree = ast.parse(content)
+    call = _get_by_role_call(tree)
+    assert call.args[0].value == "link"
+    name_kw = next(kw for kw in call.keywords if kw.arg == "name")
+    assert name_kw.value.value == "立即購買"
+    assert "has-text" not in content
 
 
-def test_generate_test_cta_module_label_text_escapes_double_quotes(runner, monkeypatch, tmp_path):
+def test_render_cta_label_text_with_embedded_quotes_round_trips_via_python_repr(runner, monkeypatch, tmp_path):
+    """get_by_role 的 name 參數是純 Python 字串參數（不是 CSS 字串字面
+    值），雙引號不需要任何特殊跳脫就能安全往返——取代舊版專門測 CSS
+    :has-text 跳脫的案例。"""
     monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
     module = {
         "kind": "cta",
         "name": "cta_quote",
-        "selectors": {"trigger": "a.btn"},
+        "selectors": {"trigger": "a"},
         "metadata": {"label_text": '說"你好"', "tag": "a"},
     }
     runner.generate_test("desc", "test_cta_quote.py", url="https://x.test", module=module)
     content = (tmp_path / "test_cta_quote.py").read_text()
     tree = ast.parse(content)
-    # 從產出碼裡把真正的 locator 字串值取出來比對 —— 不是比對檔案裡的原始
-    # text（Python 原始碼本身的反斜線跳脫規則會讓比對字串很難寫對），而是
-    # 比對 CSS :has-text(...) 字串實際的「值」：裡面的雙引號要被跳脫成
-    # \" 才是合法的 CSS 字串字面值。
-    literal = next(
-        n.value for n in ast.walk(tree)
-        if isinstance(n, ast.Constant) and isinstance(n.value, str) and "has-text" in n.value
+    call = _get_by_role_call(tree)
+    name_kw = next(kw for kw in call.keywords if kw.arg == "name")
+    assert name_kw.value.value == '說"你好"'
+    assert "has-text" not in content
+
+
+def test_render_cta_unknown_tag_falls_back_to_filter_has_text(runner, monkeypatch, tmp_path):
+    """tag 既不是 "a" 也不是 "button"、selector 也沒有 role="button" 標記
+    （例如 analyze_screen 的 mobile cta，metadata 裡根本沒有 "tag" 欄位）
+    ——不亂猜 ARIA role，改用 .filter(has_text=...)，一樣不碰 CSS 字串
+    跳脫。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "cta",
+        "name": "cta_mobile",
+        "selectors": {"trigger": "custom-el"},
+        "metadata": {"label_text": "確認"},  # 沒有 "tag"
+    }
+    runner.generate_test("desc", "test_cta_mobile.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_cta_mobile.py").read_text()
+    tree = ast.parse(content)
+    assert "get_by_role" not in content
+    filter_call = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "filter"
     )
-    assert literal == 'a.btn:has-text("說\\"你好\\"")'
+    has_text_kw = next(kw for kw in filter_call.keywords if kw.arg == "has_text")
+    assert has_text_kw.value.value == "確認"
+    assert "has-text" not in content  # 不是 CSS 偽類那種寫法
+
+
+def test_render_cta_stable_selector_is_preserved_over_text_locator(runner, monkeypatch, tmp_path):
+    """review round 3 #4：selector 已經是穩定的（這裡用 aria-label 屬性
+    選擇器）——即使有 label_text，也不該被硬改成 get_by_role(name=...)，
+    因為 accessible name 來自 aria-label 不是 innerText，用 innerText 當
+    name 反而會找不到元素（本來會過的測試被改成找不到元素）。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "cta",
+        "name": "cta_logout",
+        "selectors": {"trigger": 'button[aria-label="登出"]'},
+        "metadata": {"label_text": "登出圖示", "tag": "button"},
+    }
+    runner.generate_test("desc", "test_cta_stable.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_cta_stable.py").read_text()
+    ast.parse(content)
+    assert "get_by_role" not in content
+    assert "filter(has_text" not in content
+    assert "page.locator('button[aria-label=\"登出\"]')" in content
+    assert ".first" not in content
+
+
+def test_render_cta_selector_unique_false_flag_still_uses_text_locator_even_if_qualified(
+    runner, monkeypatch, tmp_path,
+):
+    """反向：selector 看起來像是「qualified」（非 bare tag），但
+    metadata.selector_unique 明確為 False —— 旗標優先，一樣要走文字定位，
+    跟 table module 的規則一致。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "cta",
+        "name": "cta_logout",
+        "selectors": {"trigger": "button.logout-btn"},
+        "metadata": {"label_text": "登出", "tag": "button", "selector_unique": False},
+    }
+    runner.generate_test("desc", "test_cta_flagged.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_cta_flagged.py").read_text()
+    ast.parse(content)
+    assert "get_by_role" in content
 
 
 def test_generate_test_cta_module_without_label_text_falls_back_to_bare_tag_first(runner, monkeypatch, tmp_path):
@@ -1130,6 +1265,48 @@ def test_generate_test_dialog_module_open_on_load_false_renders_existence_assert
     assert "to_be_hidden()" in content
     assert "TODO" in content
     assert "觸發" in content
+
+
+# ---- review round 3 (#5) — dialog 先 attached 再 hidden，避免 .first.first --
+# 0 匹配也會讓單純的 to_be_hidden() 通過（空斷言）。先補 to_be_attached()
+# 確保真的有找到元素，再驗證預設是隱藏的；同時避免 container selector 自己
+# 已經退化成 .first 時又疊一層 .first（.first.first 語意重複）。
+
+
+def test_render_dialog_open_on_load_false_asserts_attached_before_hidden(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "dialog",
+        "name": "dialog_confirm_logout",
+        "selectors": {"container": "#confirm-logout-dialog"},
+        "metadata": {"open_on_load": False},
+    }
+    runner.generate_test("desc", "test_dialog_unique.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_dialog_unique.py").read_text()
+    ast.parse(content)
+    assert "expect(target.first).to_be_attached()" in content
+    assert "expect(target.first).to_be_hidden()" in content
+    assert ".first.first" not in content
+
+
+def test_render_dialog_open_on_load_false_bare_tag_does_not_double_first(runner, monkeypatch, tmp_path):
+    """container selector 已經因為 bare-tag 退化成 .first 時，後面的
+    attached/hidden 斷言不該再疊一層 .first。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "dialog",
+        "name": "dialog_confirm_logout",
+        "selectors": {"container": "dialog"},
+        "metadata": {"open_on_load": False},
+    }
+    runner.generate_test("desc", "test_dialog_bare.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_dialog_bare.py").read_text()
+    ast.parse(content)
+    assert "target = page.locator('dialog').first" in content
+    assert "expect(target).to_be_attached()" in content
+    assert "expect(target).to_be_hidden()" in content
+    assert ".first.first" not in content
+    assert "target.first" not in content
 
 
 def test_generate_test_dialog_module_open_on_load_true_keeps_visible_assertion(runner, monkeypatch, tmp_path):

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import time
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
@@ -10,7 +11,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Resource, TextContent, Tool
 from pydantic import AnyUrl
 
-from .config import OPTIMIZATION_PATH, REPORT_PATH
+from .config import OPTIMIZATION_PATH, PROJECT_ROOT, REPORT_PATH
 from .reporters import html as html_reporter
 from .runners import REGISTRY as RUNNER_REGISTRY
 from .runners import get_runner
@@ -24,6 +25,7 @@ from .tools import (
     runner,
     telemetry,
 )
+from .tools.analyzer import _ENV_REF_RE as _AUTH_ENV_REF_RE
 from .tools.registry import REGISTRY as TOOL_REGISTRY
 from .tools.registry import register
 
@@ -366,6 +368,160 @@ def _select_candidate_tcs(candidates: list[str], limit: int) -> list[str]:
     return selected
 
 
+def _resolve_test_filename(slug: str, kind: str, used: set[str]) -> str:
+    """Pick a non-colliding `test_*.py` filename for one generated test,
+    tracking what this `_auto_generate_tests` run has already used in
+    `used` (mutated in place).
+
+    Why: `analyzer._build_modules` can hand back two *different* modules
+    (e.g. a `dialog` and a `cta`) that both slug to the same name — a real
+    gwp-admin /users scan had a dialog「確認登出」and a cta「確認登出」,
+    both slugging to `test_確認登出.py`. Writing the second straight to
+    that path silently overwrote the first (9 generated TCs, only 8 files
+    on disk). Collision resolution order: bare slug → `{slug}_{kind}` →
+    `{slug}_{kind}_2`, `_3`, ... until a free name is found.
+    """
+    fname = f"test_{slug}.py"
+    if fname not in used:
+        used.add(fname)
+        return fname
+    fname = f"test_{slug}_{kind}.py"
+    if fname not in used:
+        used.add(fname)
+        return fname
+    n = 2
+    while True:
+        fname = f"test_{slug}_{kind}_{n}.py"
+        if fname not in used:
+            used.add(fname)
+            return fname
+        n += 1
+
+
+def _env_ref_for_auth_value(key: str, value: str) -> tuple[str, str | None]:
+    """Turn one `auth_storage`/parsed-cookie (key, value) pair into the
+    Python expression a generated conftest.py should use to read it at
+    test-run time — the literal token value itself must never be written
+    to disk.
+
+    - `value` is a `$ENV_NAME` indirection (same `_ENV_REF_RE` rule as
+      `analyzer._resolve_auth_storage`) → `os.environ["ENV_NAME"]`, no
+      warning (the caller already chose to keep the secret out of chat/
+      tool-call logs, so nothing to flag).
+    - `value` is a literal (the caller passed the real token straight
+      through) → still never written; conftest instead reads a fixed,
+      derived env var name `{KEY}_TOKEN`, and a warning is returned so
+      the caller knows to `export` it before running tests.
+    """
+    match = _AUTH_ENV_REF_RE.fullmatch(value) if isinstance(value, str) else None
+    if match:
+        return f'os.environ["{match.group(1)}"]', None
+    env_name = f"{re.sub(r'[^A-Za-z0-9_]', '_', str(key)).upper()}_TOKEN"
+    warning = (
+        f'auth_storage/auth_cookie 的 "{key}" 是明碼字面值，不會寫入 conftest.py —— '
+        f"執行測試前請自行 `export {env_name}=<實際的 token 值>`"
+    )
+    return f'os.environ["{env_name}"]', warning
+
+
+def _build_auth_conftest(
+    url: str, auth_storage: dict[str, str] | None, auth_cookie: str | None,
+) -> tuple[str, list[str]]:
+    """Render a conftest.py body that seeds Playwright's `storage_state`
+    (localStorage + cookies) via a session-scoped `browser_context_args`
+    fixture, so every generated test in the project runs already logged
+    in — closes the real-world gap where a behind-login site's generated
+    suite came back all-red because nothing ever authenticated.
+
+    Returns (content, warnings) — `warnings` is non-empty only when at
+    least one value was a literal (see `_env_ref_for_auth_value`).
+    """
+    warnings: list[str] = []
+    parsed = urlparse(url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+
+    storage_lines: list[str] = []
+    for key, value in (auth_storage or {}).items():
+        if not isinstance(value, str):
+            continue
+        expr, warning = _env_ref_for_auth_value(key, value)
+        if warning:
+            warnings.append(warning)
+        storage_lines.append(f'                    {{"name": {key!r}, "value": {expr}}},')
+
+    cookie_lines: list[str] = []
+    for part in (auth_cookie or "").split(";"):
+        if "=" not in part:
+            continue
+        name, _, value = part.strip().partition("=")
+        if not name:
+            continue
+        expr, warning = _env_ref_for_auth_value(name, value)
+        if warning:
+            warnings.append(warning)
+        cookie_lines.append(
+            f'            {{"name": {name!r}, "value": {expr}, '
+            f'"domain": {parsed.hostname!r}, "path": "/"}},'
+        )
+
+    lines = [
+        '"""Auto-generated by auto_generate_tests —— session auth 鷹架。',
+        "",
+        "組成 Playwright storage_state（localStorage + cookies）並透過",
+        "browser_context_args session fixture 注入，讓這個專案底下所有測試",
+        "一開始就是已登入的 context（不然 behind-login 站產出的測試不登入",
+        "全部會紅）。",
+        "",
+        "Token 絕不落檔：以下只引用環境變數名稱，真正的值請在執行測試前自行",
+        "export（哪些變數、要不要自己設，見 auto_generate_tests 回傳的",
+        "conftest_warnings）。",
+        '"""',
+        "import os",
+        "",
+        "import pytest",
+        "",
+        "",
+        '@pytest.fixture(scope="session")',
+        "def browser_context_args(browser_context_args):",
+        f"    origin = {origin!r}",
+        "    storage_state = {",
+        '        "origins": [',
+        "            {",
+        '                "origin": origin,',
+        '                "localStorage": [',
+        *(storage_lines or ["                    # (無 auth_storage)"]),
+        "                ],",
+        "            },",
+        "        ],",
+        '        "cookies": [',
+        *cookie_lines,
+        "        ],",
+        "    }",
+        '    return {**browser_context_args, "storage_state": storage_state}',
+        "",
+    ]
+    return "\n".join(lines), warnings
+
+
+def _write_auth_conftest(
+    url: str, auth_storage: dict[str, str] | None, auth_cookie: str | None,
+) -> dict:
+    """Write `<QA_PROJECT_ROOT>/conftest.py` with the auth scaffold from
+    `_build_auth_conftest`, unless one already exists (never clobber a
+    hand-written conftest). Returns the `conftest`/`conftest_warnings`
+    keys to merge into `_auto_generate_tests`'s result dict."""
+    conftest_path = PROJECT_ROOT / "conftest.py"
+    if conftest_path.exists():
+        return {"conftest": "skipped (exists)"}
+    content, warnings = _build_auth_conftest(url, auth_storage, auth_cookie)
+    conftest_path.parent.mkdir(parents=True, exist_ok=True)
+    conftest_path.write_text(content, encoding="utf-8")
+    result: dict = {"conftest": "written"}
+    if warnings:
+        result["conftest_warnings"] = warnings
+    return result
+
+
 async def _auto_generate_tests(
     url: str,
     timeout_ms: int,
@@ -389,21 +545,26 @@ async def _auto_generate_tests(
 
     endpoints = (analysis.get("api_endpoints") or []) if isinstance(analysis, dict) else []
     generated: list[dict] = []
+    used_filenames: set[str] = set()
     for module in (analysis.get("modules", []) or []):
         module_api = _pick_form_api(url, module, endpoints)
         module_for_gen = {**module, "api": module_api} if module_api else module
         candidates = module.get("candidate_tcs", []) or []
         module_name = module.get("name", "module")
+        module_kind = module.get("kind") or "module"
         for i, tc in enumerate(_select_candidate_tcs(candidates, tests_per_module)):
             slug = f"{module_name}_{i}" if i > 0 else module_name
+            # 碰撞處理：不同 module（例如 dialog 跟 cta）可能 slug 成同一個
+            # 名字（真實站回歸：兩個都叫「確認登出」）。用本輪已用檔名 set
+            # 擋掉無聲覆寫 —— 見 _resolve_test_filename 的 docstring。
+            file_out = _resolve_test_filename(slug, module_kind, used_filenames)
             try:
                 generator.generate_test(
                     description=tc,
-                    filename=slug,
+                    filename=file_out,
                     url=url,
                     module=module_for_gen,
                 )
-                file_out = f"test_{slug}.py"
                 generated.append({
                     "filename": file_out,
                     "description": tc,
@@ -415,20 +576,26 @@ async def _auto_generate_tests(
                 )
             except Exception as e:
                 generated.append({
-                    "filename": f"test_{slug}.py",
+                    "filename": file_out,
                     "module_name": module_name,
                     "error": f"{type(e).__name__}: {e}",
                 })
 
-    return {
+    tests_generated = sum(1 for g in generated if "error" not in g)
+    result = {
         "url": url,
         "page_title": analysis.get("page_title"),
         "module_count": analysis.get("module_count"),
         "api_endpoint_count": analysis.get("api_endpoint_count"),
-        "tests_generated": sum(1 for g in generated if "error" not in g),
+        "tests_generated": tests_generated,
         "tests_failed": sum(1 for g in generated if "error" in g),
         "tests": generated,
     }
+    # auth 鷹架只在真的有東西可以用它的時候才產出 —— 沒有 auth_storage，或
+    # 一筆測試都沒成功產出時都跳過（避免留一個指向空測試集的空殼 conftest）。
+    if auth_storage and tests_generated >= 1:
+        result.update(_write_auth_conftest(url, auth_storage, auth_cookie))
+    return result
 
 
 async def main():

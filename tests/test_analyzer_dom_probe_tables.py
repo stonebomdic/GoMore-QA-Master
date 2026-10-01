@@ -817,3 +817,21 @@ def test_form_fully_offscreen_to_the_left_is_marked_not_visible():
     forms = structure["forms"]
     assert len(forms) == 1
     assert forms[0]["visible"] is False
+
+
+RTL_LEFT_OVERFLOW_CTA_HTML = """
+<html dir="rtl"><body style="margin:0">
+  <div style="width:3000px; direction:rtl">
+    <button id="rtl-far" style="position:absolute; left:-800px; top:10px">送出</button>
+  </div>
+</body></html>
+"""
+
+
+def test_rtl_document_skips_horizontal_offscreen_check():
+    """RTL 文件的溢出側在左邊，x<=0 的內容是捲得到的；水平離屏判斷若照
+    LTR 邏輯套用，正常的 cta 會被誤標隱藏並降成骨架。RTL 時只保留垂直判斷。"""
+    structure = _probe(RTL_LEFT_OVERFLOW_CTA_HTML)
+    ctas = [c for c in structure["ctas"] if c.get("text") == "送出"]
+    assert len(ctas) == 1
+    assert ctas[0]["visible"] is True

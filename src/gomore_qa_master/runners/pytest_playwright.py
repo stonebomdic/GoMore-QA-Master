@@ -1083,9 +1083,12 @@ class PytestPlaywrightRunner(TestRunner):
             else:
                 lines.append("    # 分析時 0 列：請確認空狀態文案或補資料後再斷言\n")
             if headers:
+                # has_text 不經 innerText 轉換（<br> 不會變換行），只拿第一個
+                # 空白分隔 token 比對；has_text 本身不分大小寫，uppercase 樣式無虞。
+                header_token = headers[0].split()[0] if headers[0].split() else headers[0]
                 lines.append(
                     "    expect(table.locator('[role=\"columnheader\"]')"
-                    f".filter(has_text={headers[0]!r}).first).to_be_visible()\n"
+                    f".filter(has_text={header_token!r}).first).to_be_visible()\n"
                 )
         # detection == "repeated"：啟發式偵測，只留 visible 斷言——不對列
         # 數/表頭下真斷言（見本函式 docstring）。

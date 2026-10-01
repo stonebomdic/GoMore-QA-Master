@@ -106,6 +106,53 @@ def test_rendered_native_table_header_assertion_passes_against_real_dom_with_bla
             browser.close()
 
 
+ARIA_GRID_BR_HEADER_UPPERCASE_HTML = """
+<html><body>
+  <div role="grid" id="agrid">
+    <div role="row">
+      <div role="columnheader"></div>
+      <div role="columnheader" style="text-transform:uppercase">First<br>Name</div>
+    </div>
+    <div role="row"><div role="gridcell"></div><div role="gridcell">Alice</div></div>
+    <div role="row"><div role="gridcell"></div><div role="gridcell">Bob</div></div>
+  </div>
+</body></html>
+"""
+
+
+def test_rendered_aria_grid_header_assertion_passes_with_br_and_uppercase_header():
+    """aria 分支的表頭斷言用 filter(has_text=...)：has_text 不經 innerText
+    轉換（<br> 不會變成換行），所以只拿第一個空白分隔 token 比對；has_text
+    本身不分大小寫，uppercase 樣式不影響。實際 exec 產出程式碼驗證。"""
+    from playwright.sync_api import expect, sync_playwright
+
+    from gomore_qa_master.runners.pytest_playwright import PytestPlaywrightRunner
+    from gomore_qa_master.tools.analyzer import _DOM_PROBE_JS, _build_modules
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content(ARIA_GRID_BR_HEADER_UPPERCASE_HTML)
+            structure = page.evaluate(_DOM_PROBE_JS)
+            modules = _build_modules(structure)
+            table_module = next(m for m in modules if m["kind"] == "table")
+            assert table_module["metadata"]["detection"] == "aria"
+            assert table_module["metadata"]["headers"] == ["FIRST\nNAME"]
+
+            runner = PytestPlaywrightRunner()
+            body = runner._render_table_body(
+                table_module["selectors"], table_module["metadata"],
+            )
+            assert "has_text='FIRST'" in body
+            assert "FIRST\\nNAME" not in body
+
+            namespace = {"page": page, "expect": expect}
+            exec(textwrap.dedent(body), namespace)  # noqa: S102 — 刻意執行 renderer 的真實產出
+        finally:
+            browser.close()
+
+
 def test_rendered_native_table_row_assertion_covers_dom_built_table_with_no_auto_tbody():
     """S3：透過 DOM API（`createElement`/`appendChild`）建出的 `<table>`
     不會有瀏覽器自動補的 `<tbody>`——`table.locator("tbody tr")` 會 0

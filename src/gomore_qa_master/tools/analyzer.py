@@ -325,17 +325,21 @@ _DOM_PROBE_JS = r"""
   // (`position:absolute; left:-9999px`-style visual hiding, still very
   // common for off-canvas/accessibility-hidden content) counts as not
   // visible even though its rect is non-zero-sized (Opus review round,
-  // S1). This is intentionally narrow — it does NOT catch every visual-
-  // hiding technique (e.g. `transform: translateX(-9999px)` doesn't
-  // change `getBoundingClientRect()`'s page-relative math the same way
-  // in all cases, and `width:0; overflow:hidden` keeps a non-zero
-  // bounding box entirely within the viewport) — see callers' docs for
-  // what this does and doesn't cover.
+  // S1). This is intentionally narrow: it catches `left:-9999px` and
+  // fully-offscreen `transform: translateX(-100%)` sidebars (both move
+  // the bounding box), but NOT `width:0; overflow:hidden` collapses
+  // (non-zero box still inside the viewport) nor ancestor clipping — see
+  // callers' docs for what this does and doesn't cover.
+  // The horizontal half is skipped on RTL documents: there the overflow
+  // side is the left, and content scrolled past x<=0 is reachable (a
+  // real cta would otherwise be downgraded to a skeleton).
+  const isRtl = getComputedStyle(document.documentElement).direction === 'rtl';
   const isVisible = (el) => {
     if (!el) return false;
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return false;
-    if (r.right + window.scrollX <= 0 || r.bottom + window.scrollY <= 0) return false;
+    if (r.bottom + window.scrollY <= 0) return false;
+    if (!isRtl && r.right + window.scrollX <= 0) return false;
     const cs = getComputedStyle(el);
     if (cs.visibility === 'hidden' || cs.display === 'none') return false;
     return true;

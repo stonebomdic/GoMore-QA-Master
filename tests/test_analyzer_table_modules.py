@@ -404,7 +404,7 @@ def test_table_metadata_visible_defaults_none_when_js_omits_it():
     assert _table_modules(modules)[0]["metadata"]["visible"] is None
 
 
-def test_form_module_visible_false_prefixes_first_candidate_tc():
+def test_form_module_visible_false_prefixes_every_candidate_tc():
     structure = {
         "forms": [
             {
@@ -417,6 +417,30 @@ def test_form_module_visible_false_prefixes_first_candidate_tc():
     f = _form_modules(modules)[0]
     assert f["metadata"]["visible"] is False
     assert f["candidate_tcs"][0].startswith("（需先觸發顯示）")
+
+
+def test_form_module_visible_false_prefixes_every_candidate_tc_not_just_first():
+    """Opus 覆審 S4：`_select_candidate_tcs` 在預設 tests_per_module=1 時
+    可能把選中的 TC 從 tcs[0] 換成清單裡的 happy-path TC——只前綴第一條
+    會讓換掉後選中的那條漏掉「需先觸發顯示」提示。這裡用一個有多個欄位
+    （因此有多條 candidate_tcs）的 form 驗證每一條都被前綴。"""
+    structure = {
+        "forms": [
+            {
+                "index": 0, "selector": "#f", "action": "/x", "method": "post",
+                "fields": [
+                    {"label": "Email", "selector": "#email", "type": "email", "required": True},
+                    {"label": "Password", "selector": "#pw", "type": "password", "required": True},
+                ],
+                "submit": {"selector": "#submit", "text": "送出"},
+                "visible": False,
+            }
+        ],
+    }
+    modules = _build_modules(structure)
+    f = _form_modules(modules)[0]
+    assert len(f["candidate_tcs"]) > 1
+    assert all(tc.startswith("（需先觸發顯示）") for tc in f["candidate_tcs"])
 
 
 def test_form_module_visible_true_does_not_prefix_candidate_tc():
@@ -433,7 +457,10 @@ def test_form_module_visible_true_does_not_prefix_candidate_tc():
     assert not f["candidate_tcs"][0].startswith("（需先觸發顯示）")
 
 
-def test_cta_module_visible_false_prefixes_first_candidate_tc_and_propagates_metadata():
+def test_cta_module_visible_false_prefixes_every_candidate_tc_and_propagates_metadata():
+    """S4：cta 固定有 2 條 candidate_tcs——兩條都要被前綴，不是只有第一條
+    （理由同 form 分支，見 test_form_module_visible_false_prefixes_every_
+    candidate_tc_not_just_first 的 docstring）。"""
     structure = {
         "ctas": [
             {"text": "確認登出", "selector": "button", "tag": "button", "visible": False},
@@ -442,7 +469,8 @@ def test_cta_module_visible_false_prefixes_first_candidate_tc_and_propagates_met
     modules = _build_modules(structure)
     cta = next(m for m in modules if m["kind"] == "cta")
     assert cta["metadata"]["visible"] is False
-    assert cta["candidate_tcs"][0].startswith("（需先觸發顯示）")
+    assert len(cta["candidate_tcs"]) > 1
+    assert all(tc.startswith("（需先觸發顯示）") for tc in cta["candidate_tcs"])
 
 
 def test_cta_module_visible_true_does_not_prefix_candidate_tc():

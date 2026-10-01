@@ -308,25 +308,48 @@ _DOM_PROBE_JS = r"""
   // 0x0 regardless of their own `display` value), but `visibility` is
   // inherited and does NOT zero out layout, so the explicit computed-
   // style check is still needed for that case.
+  //
+  // Deliberately aligned with Playwright's OWN definition of "visible"
+  // (non-empty bounding box + `visibility !== hidden`) — NOT opacity.
+  // Playwright treats `opacity:0` elements as visible/actionable, and so
+  // must this: `opacity:0` is a common MUI/antd-style "visually hidden
+  // but still interactive" technique for a custom checkbox/radio, and an
+  // isVisible that disagreed with Playwright would wrongly drop those
+  // fields from `standalone_fields` entirely (Opus review round, I4).
+  // `layout_warnings` is a different concern (visual regressions, not
+  // interactivity) and keeps its OWN opacity check rather than sharing
+  // this function — see its own filter below.
+  //
+  // Also includes a cheap, approximate offscreen check: an element whose
+  // entire bounding box sits at/before the page's top-left scroll origin
+  // (`position:absolute; left:-9999px`-style visual hiding, still very
+  // common for off-canvas/accessibility-hidden content) counts as not
+  // visible even though its rect is non-zero-sized (Opus review round,
+  // S1). This is intentionally narrow — it does NOT catch every visual-
+  // hiding technique (e.g. `transform: translateX(-9999px)` doesn't
+  // change `getBoundingClientRect()`'s page-relative math the same way
+  // in all cases, and `width:0; overflow:hidden` keeps a non-zero
+  // bounding box entirely within the viewport) — see callers' docs for
+  // what this does and doesn't cover.
   const isVisible = (el) => {
     if (!el) return false;
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return false;
+    if (r.right + window.scrollX <= 0 || r.bottom + window.scrollY <= 0) return false;
     const cs = getComputedStyle(el);
     if (cs.visibility === 'hidden' || cs.display === 'none') return false;
-    if (parseFloat(cs.opacity) === 0) return false;
     return true;
   };
 
   const forms = [...document.querySelectorAll('form')].map((f, i) => {
-    const fields = [...f.querySelectorAll('input, textarea, select')]
-      .filter(el => el.type !== 'hidden')
-      .map(el => ({
-        label: labelFor(el),
-        selector: sel(el),
-        type: el.tagName === 'INPUT' ? (el.type || 'text') : el.tagName.toLowerCase(),
-        required: el.required || el.getAttribute('aria-required') === 'true',
-      }));
+    const fieldEls = [...f.querySelectorAll('input, textarea, select')]
+      .filter(el => el.type !== 'hidden');
+    const fields = fieldEls.map(el => ({
+      label: labelFor(el),
+      selector: sel(el),
+      type: el.tagName === 'INPUT' ? (el.type || 'text') : el.tagName.toLowerCase(),
+      required: el.required || el.getAttribute('aria-required') === 'true',
+    }));
     const sb = f.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
     return {
       index: i, selector: sel(f),
@@ -334,7 +357,17 @@ _DOM_PROBE_JS = r"""
       method: (f.getAttribute('method') || 'get').toLowerCase(),
       fields,
       submit: sb ? { selector: sel(sb), text: txt(sb) } : null,
-      visible: isVisible(f),
+      // The <form> element itself can have a zero-size bounding rect even
+      // though its fields are genuinely visible — `display:contents`
+      // generates no box of its own at all, and an un-cleared float/
+      // absolute-positioned-children layout can collapse the parent's
+      // own height to 0 — so fall back to "any field, or the submit
+      // button, is visible" before calling the whole form invisible
+      // (Opus review round, I5). A form that's ACTUALLY hidden (its own
+      // rect zero/offscreen AND every field/submit also zero/offscreen,
+      // e.g. a closed dialog's empty <form> with no fields at all) still
+      // correctly falls through to `false`.
+      visible: isVisible(f) || fieldEls.some(isVisible) || (sb ? isVisible(sb) : false),
     };
   });
 
@@ -369,9 +402,14 @@ _DOM_PROBE_JS = r"""
   const ctaPatterns = ['登入','登出','註冊','結帳','送出','提交','下一步','繼續','購買','加入購物車','搜尋','查詢','確認','取消','訂閱','Sign in','Sign up','Login','Logout','Submit','Continue','Next','Checkout','Subscribe','Buy','Add to cart','Search'];
   const ctas = [...document.querySelectorAll('button, [role="button"], a.button, a.btn')]
     .filter(b => !b.closest('form'))
-    .map(b => ({ text: txt(b), selector: sel(b), tag: b.tagName.toLowerCase(), visible: isVisible(b) }))
+    .map(b => ({ el: b, text: txt(b), selector: sel(b), tag: b.tagName.toLowerCase() }))
     .filter(b => b.text && ctaPatterns.some(p => b.text.includes(p)))
-    .slice(0, 20);
+    .slice(0, 20)
+    // `isVisible()` forces a layout/style read per element — only worth
+    // paying for on the handful of candidates that survive the text/
+    // pattern filter and the slice(0, 20) cap, not on every button/
+    // [role=button]/a.button/a.btn on the page (Opus review round, S5).
+    .map(b => ({ text: b.text, selector: b.selector, tag: b.tag, visible: isVisible(b.el) }));
 
   // Tables: three-tier detection (native <table> > ARIA grid > repeated
   // fallback), de-duped so the same element is never classified twice —
@@ -644,8 +682,16 @@ _DOM_PROBE_JS = r"""
   // invisible elements + intentional scrollers (overflow: auto/scroll).
   const layout_warnings = [...document.querySelectorAll('body *')]
     .filter(el => {
-      if (!isVisible(el)) return false;
+      // Deliberately NOT sharing `isVisible()` here (Opus review round,
+      // I4) — this is a visual-regression check (跑版), not an
+      // interactivity check, so its own opacity:0 exclusion is correct
+      // and must stay exactly as it was before isVisible() existed: an
+      // opacity:0 element isn't rendered on screen, so overflow inside
+      // it can never be an actual visual bug a user would see.
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return false;
       const cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0) return false;
       const dx = el.scrollWidth - el.clientWidth;
       const dy = el.scrollHeight - el.clientHeight;
       if (dx <= 2 && dy <= 10) return false;
@@ -761,8 +807,12 @@ def _build_modules(structure: dict) -> list[dict]:
             tcs.append("直接點擊送出，應有適當回應或無作用")
 
         visible = form.get("visible")
-        if visible is False and tcs:
-            tcs[0] = f"（需先觸發顯示）{tcs[0]}"
+        if visible is False:
+            # 每一條都要加前綴，不是只有第一條——`_select_candidate_tcs`
+            # 在預設 tests_per_module=1 時可能把挑進去的那條換成清單裡的
+            # happy-path TC（而非 tcs[0]），只前綴第一條會讓換掉後選中的
+            # TC 漏掉這個提示（Opus review round, S4）。
+            tcs = [f"（需先觸發顯示）{tc}" for tc in tcs]
 
         modules.append({
             "kind": "form",
@@ -828,7 +878,8 @@ def _build_modules(structure: dict) -> list[dict]:
             f"「{text}」在 loading 狀態下應禁用以避免重複觸發",
         ]
         if visible is False:
-            cta_tcs[0] = f"（需先觸發顯示）{cta_tcs[0]}"
+            # 同上（form 分支）：每一條都要加前綴，不是只有第一條。
+            cta_tcs = [f"（需先觸發顯示）{tc}" for tc in cta_tcs]
         modules.append({
             "kind": "cta",
             "name": _slug(text, "cta"),

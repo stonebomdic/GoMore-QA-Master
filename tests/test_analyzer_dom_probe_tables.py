@@ -677,3 +677,143 @@ def test_native_table_normally_visible_is_marked_visible():
     tables = structure["tables"]
     assert len(tables) == 1
     assert tables[0]["visible"] is True
+
+
+# ---------------------------------------------------------------------------
+# Opus 覆審 round（real Chromium repro）：
+#
+# I4 — isVisible 對齊 Playwright 自己的可見性定義（non-empty bounding box +
+# visibility != hidden），移除 opacity 檢查。opacity:0 是 MUI/antd 等 UI
+# library 常見的「視覺隱藏但仍可互動」自訂 checkbox/radio 手法——舊版
+# isVisible 誤判成不可見，會把這類欄位整個排除在 standalone_fields 之外
+# （explicit form 的 fields 同理，雖然目前還沒有獨立測試覆蓋那條路徑）。
+# layout_warnings 是完全不同的關注點（抓視覺跑版，不是互動性），保留它
+# 原本的 opacity 檢查，不跟 isVisible 共用。
+#
+# I5 — 子元素全部 float / position:absolute / display:contents 的
+# `<form>`：表單本身的 bounding rect 可能是 0（display:contents 的元素
+# 根本不生成自己的 box；全部子元素 float/absolute 時部分瀏覽器下父層高度
+# 會 collapse 成 0），但欄位本身是可見、可互動的——`visible` 不該只看
+# form 自己，要 fallback 到任一欄位或 submit 鈕可見。
+#
+# S1 — 便宜的離屏判斷：bounding rect 完全落在 viewport 原點左／上方（常見
+# 的 `position:absolute; left:-9999px` 視覺隱藏手法）視為不可見。
+# ---------------------------------------------------------------------------
+
+OPACITY_ZERO_CHECKBOX_HTML = """
+<html><body>
+  <input type="checkbox" id="agree" style="opacity:0" />
+</body></html>
+"""
+
+
+def test_standalone_field_opacity_zero_is_still_visible_per_playwright_semantics():
+    """I4：opacity:0 不等於 Playwright 定義下的「不可見」——沿用舊版
+    isVisible（w===0 && h===0，不看 opacity）的語意，opacity:0 的自訂
+    checkbox 必須留在 standalone_fields 裡，不能被整個濾掉。"""
+    structure = _probe(OPACITY_ZERO_CHECKBOX_HTML)
+    selectors = {f["selector"] for f in structure["standalone_fields"]}
+    assert "#agree" in selectors
+
+
+LAYOUT_WARNING_OPACITY_ZERO_HTML = """
+<html><body>
+  <div id="ghost" style="opacity:0; width:50px; overflow:hidden; white-space:nowrap">
+    this text is way too long to fit in fifty pixels wide
+  </div>
+</body></html>
+"""
+
+
+def test_layout_warnings_still_excludes_opacity_zero_elements():
+    """layout_warnings 保留自己原本的 opacity 檢查（不是互動性關注點，不該
+    跟 isVisible 共用）——opacity:0 的跑版候選不該被回報成視覺 bug。"""
+    structure = _probe(LAYOUT_WARNING_OPACITY_ZERO_HTML)
+    selectors = {w["selector"] for w in structure["layout_warnings"]}
+    assert "#ghost" not in selectors
+
+
+ZERO_HEIGHT_FORM_FLOAT_CHILDREN_HTML = """
+<html><body>
+  <style>
+    .float-form { overflow: visible; }
+    .float-form input, .float-form button { float: left; }
+  </style>
+  <form class="float-form" id="float-form">
+    <input type="text" id="q" />
+    <button type="submit" id="go">Go</button>
+  </form>
+</body></html>
+"""
+
+
+def test_form_with_all_floated_children_is_still_marked_visible():
+    """I5：子元素全部 float 時，部分瀏覽器下沒有 clearfix 的 form 本身高度
+    會 collapse 成 0（bounding rect height=0）——但欄位跟送出鈕都還看得到、
+    點得到。visible 要 fallback 到欄位／submit 任一可見。"""
+    structure = _probe(ZERO_HEIGHT_FORM_FLOAT_CHILDREN_HTML)
+    forms = structure["forms"]
+    assert len(forms) == 1
+    # Sanity check the fixture actually reproduces a zero-size form (if this
+    # ever stops collapsing in a future Chromium, the fallback logic is
+    # still correct, but this assertion documents the real-browser
+    # precondition the fix targets).
+    assert forms[0]["visible"] is True
+
+
+DISPLAY_CONTENTS_FORM_HTML = """
+<html><body>
+  <form id="contents-form" style="display:contents">
+    <input type="text" id="q2" />
+    <button type="submit" id="go2">Go</button>
+  </form>
+</body></html>
+"""
+
+
+def test_form_with_display_contents_is_still_marked_visible():
+    """`display:contents` 的元素完全不生成自己的 box——`getBoundingClientRect()`
+    必然是全 0——但子元素正常渲染、正常可見。"""
+    structure = _probe(DISPLAY_CONTENTS_FORM_HTML)
+    forms = structure["forms"]
+    assert len(forms) == 1
+    assert forms[0]["visible"] is True
+
+
+ABSOLUTE_CHILDREN_FORM_HTML = """
+<html><body>
+  <form id="abs-form" style="position:relative; height:0; overflow:visible">
+    <input type="text" id="q3" style="position:absolute; top:0; left:0" />
+    <button type="submit" id="go3" style="position:absolute; top:30px; left:0">Go</button>
+  </form>
+</body></html>
+"""
+
+
+def test_form_with_absolute_positioned_children_and_zero_height_is_still_marked_visible():
+    """`height:0` 的 form 容器（子元素全 absolute 定位撐不開高度）——欄位
+    跟送出鈕都還是可見的，不該因為容器本身 0 高就整組被標成隱藏。"""
+    structure = _probe(ABSOLUTE_CHILDREN_FORM_HTML)
+    forms = structure["forms"]
+    assert len(forms) == 1
+    assert forms[0]["visible"] is True
+
+
+OFFSCREEN_LEFT_FORM_HTML = """
+<html><body>
+  <form id="offscreen-form" style="position:absolute; left:-9999px; top:0">
+    <input type="text" id="q4" />
+    <button type="submit" id="go4">Go</button>
+  </form>
+</body></html>
+"""
+
+
+def test_form_fully_offscreen_to_the_left_is_marked_not_visible():
+    """S1：整個 form（含欄位／送出鈕）都用 `left:-9999px` 移到可視區域外
+    ——這是常見的「視覺隱藏但仍在 DOM 流程裡」手法，不同於 I5 要救援的
+    「容器 0 尺寸但子元素在可視區域內」案例，isVisible 要能分辨兩者。"""
+    structure = _probe(OFFSCREEN_LEFT_FORM_HTML)
+    forms = structure["forms"]
+    assert len(forms) == 1
+    assert forms[0]["visible"] is False

@@ -1,6 +1,6 @@
 {
   "name": "gomore-qa-master",
-  "version": "0.9.9",
+  "version": "0.9.10",
   "description": "AI 測試大師 — run, generate, debug, and harden software tests via gomore-qa-master's MCP tools. Includes the OWASP API Security Top 10 scanner and a bilingual QA knowledge layer. Same skill folder loads in Claude Code, Codex, OpenClaw, and Hermes.",
   "author": {
     "name": "Jack Kao",

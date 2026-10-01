@@ -120,6 +120,16 @@ _EMPTY_SUBMIT_KEYWORDS = re.compile(
 # only the runner knows how to turn "which field" into "which fill to skip".
 _SINGLE_FIELD_EMPTY_PATTERN = re.compile(r"只填其他欄位、(.+?)\s*留空")
 
+# A selector that's just a bare HTML tag name ("table", "button", "dialog"...)
+# with no id/class/attribute/pseudo qualifier. analyze_url's `sel()` helper
+# falls back to the tag name alone when it can't find a stable selector
+# (no id/data-testid/name/aria-label) — on a real page that tag is almost
+# never unique (gwp-admin /users had 2 <table>s and 10+ <button>s), so
+# `page.locator(sel)` trips Playwright's strict-mode violation. Anything
+# with an id/class/attribute/pseudo-class marker (`#`, `.`, `[`, `:`) is
+# assumed qualified enough to not need the `.first` fallback.
+_BARE_TAG_SELECTOR_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+
 # Bilingual "this description reads as a happy-path / success scenario"
 # phrases. Kept deliberately narrow: an assertion that asserts success only
 # gets attached when the description is unambiguously positive — anything
@@ -169,6 +179,55 @@ def _is_positive_description(description: str | None) -> bool:
     if _NEGATIVE_KEYWORDS.search(text):
         return False
     return bool(_POSITIVE_KEYWORDS.search(text))
+
+
+def _is_bare_tag_selector(selector: object) -> bool:
+    """True when `selector` is nothing but a bare HTML tag name — no
+    `#id`, `.class`, `[attr]` or `:pseudo` qualifier. See
+    `_BARE_TAG_SELECTOR_RE` for why that matters."""
+    if not isinstance(selector, str) or not selector:
+        return False
+    return bool(_BARE_TAG_SELECTOR_RE.fullmatch(selector))
+
+
+def _selector_is_non_unique(selector: str, metadata: dict | None) -> bool:
+    """Decide whether `selector` is guaranteed unique on the page.
+
+    Priority order:
+      1. `metadata["selector_unique"]` — explicit flag from the analyzer
+         (currently only `table` modules set it, from the DOM probe's
+         native/aria-level uniqueness check). When present it wins over
+         the heuristic below, in both directions.
+      2. Bare-tag heuristic (`_is_bare_tag_selector`) — used for every
+         other module kind (section/nav/generic/cta/dialog), which have
+         no such metadata.
+    """
+    md = metadata if isinstance(metadata, dict) else {}
+    if "selector_unique" in md:
+        return not md["selector_unique"]
+    return _is_bare_tag_selector(selector)
+
+
+def _container_locator_expr(selector: str | None, metadata: dict | None) -> tuple[str, str]:
+    """Build the `page.locator(...)` expression for a module's container
+    selector, degrading to `.first` when `_selector_is_non_unique` says
+    it isn't guaranteed unique on the page.
+
+    Returns (locator_expr, comment_line). `comment_line` is `""` when no
+    degradation happened; otherwise a single `    # ...\n` line explaining
+    the degradation, meant to be emitted just above the `target = ...`
+    assignment.
+    """
+    if not selector:
+        return "page.locator('body')", ""
+    base = f"page.locator({selector!r})"
+    if not _selector_is_non_unique(selector, metadata):
+        return base, ""
+    comment = (
+        f"    # selector {selector!r} 在頁面上可能不唯一（bare tag 或 analyzer "
+        "標記 selector_unique=False），改用 .first 並建議補 data-testid 取得穩定唯一選擇器\n"
+    )
+    return f"{base}.first", comment
 
 
 def _sanitize_docstring_text(text: str) -> str:
@@ -758,7 +817,24 @@ class PytestPlaywrightRunner(TestRunner):
     def _render_generic_module_test(self, description: str, slug: str, url: str | None, module: dict, business_context: str | None = None) -> str:
         kind = module.get("kind", "unknown")
         sel = module.get("selectors") or {}
-        target_sel = sel.get("container") or sel.get("trigger") or "body"
+        metadata = module.get("metadata") if isinstance(module.get("metadata"), dict) else {}
+
+        if kind == "cta":
+            body = self._render_cta_body(sel, metadata)
+        elif kind == "dialog":
+            body = self._render_dialog_body(sel, metadata)
+        else:
+            # table / section / nav / unrecognized kinds: plain container
+            # visibility check, degrading to `.first` when the container
+            # selector isn't guaranteed unique (see `_container_locator_expr`).
+            target_sel = sel.get("container") or sel.get("trigger") or "body"
+            locator_expr, comment = _container_locator_expr(target_sel, metadata)
+            body = (
+                f"{comment}"
+                f"    target = {locator_expr}\n"
+                "    expect(target).to_be_visible()\n"
+            )
+
         tcs = module.get("candidate_tcs") or []
         tc_block = "\n".join(f"    # TC: {tc}" for tc in tcs[:3])
         goto_url = url or "https://example.com"
@@ -771,11 +847,116 @@ class PytestPlaywrightRunner(TestRunner):
             f"    {description!r}\n"
             f"{bc}"
             f"    page.goto({goto_url!r})\n"
-            f"    target = page.locator({target_sel!r})\n"
-            "    expect(target).to_be_visible()\n"
+            f"{body}"
             + (f"{tc_block}\n" if tc_block else "")
             + "    # TODO: 補上實際互動與斷言\n"
             + _OVERFLOW_HINT
+        )
+
+    def _render_cta_body(self, sel: dict, metadata: dict) -> str:
+        """`kind: "cta"` module: prefer a text-based locator over the raw
+        selector, but ONLY when the raw selector isn't already guaranteed
+        unique (review round 3 #4 — a stable `#id`/`[data-testid]`/
+        `aria-label` selector must be kept as-is: its accessible name may
+        come from `aria-label`, not innerText, so forcing
+        `get_by_role(name=label_text)` there can turn a passing test
+        red). analyze_url's cta selector is frequently a bare `button` tag
+        (any page with >1 button trips strict-mode on it) — the
+        button/link's own accessible name is far more likely to be unique
+        in that case.
+
+        - `metadata.label_text` present + selector non-unique:
+            - `tag == "a"` → `locator(sel).filter(has_text=...)`（沒有 href
+              的 <a> 不是 accessibility link，get_by_role 會 0 匹配）。
+            - `tag` is any other non-empty string (`"button"`, or a
+              `[role="button"]` `<div>`/`<span>`/... — analyze_url's cta
+              query only ever matches `button`, `[role="button"]`,
+              `a.button` or `a.btn`, so any non-`"a"` tag here really is
+              button-ish) → `get_by_role("button", name=...)` (review
+              round 3 #3 — matching by role instead of a CSS
+              `:has-text()` pseudo-class means a `[role=button]` `<div>`
+              can't accidentally match an ancestor the way `div:has-text`
+              used to).
+            - `tag` missing entirely (e.g. mobile cta modules from
+              `analyze_screen`, which never set `tag`) → don't guess a
+              role; `page.locator(sel).filter(has_text=label_text)`
+              instead. This is a plain Python string argument, not a CSS
+              string literal, so there's nothing to escape — a label
+              ending in a backslash or containing a newline (review
+              round 3 #2's repro) can't produce a broken selector the way
+              the old CSS `:has-text("...")` string-building did.
+        - No `label_text`, or the selector is already unique → fall back
+          to the same bare-tag/.first degradation as every other module
+          kind (and the ORIGINAL selector, untouched, when it's unique —
+          review round 3 #4: a stable `#id`/`[data-testid]`/`aria-label`
+          selector must never be swapped out for a text locator, since
+          the accessible name used for matching may come from
+          `aria-label` rather than innerText).
+        """
+        trigger_sel = sel.get("trigger") or sel.get("container") or "body"
+        label_text = metadata.get("label_text")
+        has_label = isinstance(label_text, str) and bool(label_text)
+        if has_label and _selector_is_non_unique(trigger_sel, metadata):
+            tag = metadata.get("tag")
+            if tag == "a":
+                # 不用 get_by_role("link")：沒有 href 的 <a class=btn>（舊式
+                # onclick 按鈕）在無障礙樹裡不是 link，會 0 匹配。<a> 不會
+                # 巢狀，filter(has_text=) 不會誤選祖先。
+                target_expr = f"page.locator({trigger_sel!r}).filter(has_text={label_text!r}).first"
+            elif isinstance(tag, str) and tag:
+                target_expr = f'page.get_by_role("button", name={label_text!r}).first'
+            else:
+                target_expr = f"page.locator({trigger_sel!r}).filter(has_text={label_text!r}).first"
+            return f"    target = {target_expr}\n    expect(target).to_be_visible()\n"
+
+        locator_expr, comment = _container_locator_expr(trigger_sel, metadata)
+        return (
+            f"{comment}"
+            f"    target = {locator_expr}\n"
+            "    expect(target).to_be_visible()\n"
+        )
+
+    def _render_dialog_body(self, sel: dict, metadata: dict) -> str:
+        """`kind: "dialog"` module: `metadata.open_on_load` decides which
+        assertion is even honest to make.
+
+        - `open_on_load` True: the dialog is visible as soon as the page
+          loads, so the existing `to_be_visible()` assertion still holds —
+          selector degradation (bare-tag → `.first`) applies as usual.
+        - `open_on_load` False (the common case — a confirm/logout dialog
+          that only opens after a trigger click): asserting visible would
+          always fail since nothing in this generated test ever opens it.
+          Render an existence check first (`to_be_attached()` — a bare
+          `to_be_hidden()` alone passes even on ZERO matches, which is an
+          empty assertion that proves nothing; review round 3 #5) and
+          THEN assert hidden, plus a TODO — the real "does it open
+          correctly" coverage needs a trigger step this generator has no
+          way to infer. Note for React-portal-style modals: they may not
+          be in the DOM at all until opened, but analyzer's DOM probe did
+          see this element when it built the module, so `to_be_attached()`
+          holds at generation time.
+        """
+        container_sel = sel.get("container") or "body"
+        locator_expr, comment = _container_locator_expr(container_sel, metadata)
+        if metadata.get("open_on_load"):
+            return (
+                f"{comment}"
+                f"    target = {locator_expr}\n"
+                "    expect(target).to_be_visible()\n"
+            )
+        # `locator_expr` may already end in `.first` (non-unique selector,
+        # see `_container_locator_expr`) — don't chain a redundant second
+        # `.first` onto it (review round 3 #5).
+        first_ref = "target" if locator_expr.endswith(".first") else "target.first"
+        return (
+            f"{comment}"
+            f"    target = {locator_expr}\n"
+            "    # dialog 預設不開啟（open_on_load=False）——先確認元素真的存在於\n"
+            "    # DOM（React portal 類 modal 可能完全不在 DOM 裡，但 analyzer 掃描\n"
+            "    # 當下有看到這個元素，attached 斷言在產生當下大致成立），再驗證\n"
+            "    # 預設是隱藏的；需先觸發開啟才能驗證可見狀態，TODO 補上觸發開啟的步驟\n"
+            f"    expect({first_ref}).to_be_attached()\n"
+            f"    expect({first_ref}).to_be_hidden()\n"
         )
 
     def codegen(self, url: str, output: str = "recorded_test.py") -> str:

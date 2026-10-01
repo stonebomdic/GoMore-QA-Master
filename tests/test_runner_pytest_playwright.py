@@ -939,3 +939,224 @@ def test_business_context_block_renders_lines(runner):
     assert "# Business context:" in block
     assert "# line1" in block
     assert "# line2" in block
+
+
+# ---- bare-tag / non-unique selector 退化（table/section/cta/dialog module） -
+# 真實站實測（gwp-admin /users，9 筆產出 2 綠 6 紅）：table module selector
+# 退回 "table"（頁上 2 個）、cta/dialog 退回 "button"（頁上 10+ 個），兩者都
+# 觸發 Playwright strict-mode violation。渲染端改用 .first 降低碰撞機率，
+# cta 另外改走文字定位，dialog 的 open_on_load=False 改成不會必紅的存在性
+# 斷言。
+
+
+def test_is_bare_tag_selector_true_for_plain_tags():
+    assert pw._is_bare_tag_selector("table") is True
+    assert pw._is_bare_tag_selector("button") is True
+    assert pw._is_bare_tag_selector("div") is True
+    assert pw._is_bare_tag_selector("dialog") is True
+
+
+@pytest.mark.parametrize("selector", [
+    "#cart", ".btn", "[data-testid=x]", "table.foo", 'a:has-text("x")', "table#users",
+])
+def test_is_bare_tag_selector_false_for_qualified_selectors(selector):
+    assert pw._is_bare_tag_selector(selector) is False
+
+
+def test_is_bare_tag_selector_false_for_none_or_non_string():
+    assert pw._is_bare_tag_selector(None) is False
+    assert pw._is_bare_tag_selector(123) is False
+
+
+def test_generate_test_table_module_bare_tag_selector_renders_first_with_comment(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "table",
+        "name": "users_table_0",
+        "selectors": {"container": "table"},
+        "metadata": {
+            "headers": ["Name"], "column_count": 1, "row_count": 2, "detection": "native",
+        },
+    }
+    runner.generate_test("表格應正確渲染", "test_users_table.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_users_table.py").read_text()
+    ast.parse(content)
+    assert "page.locator('table').first" in content
+    assert "data-testid" in content  # 退化註解建議補 data-testid
+
+
+def test_generate_test_table_module_selector_unique_false_flag_forces_first(runner, monkeypatch, tmp_path):
+    """table metadata 有 selector_unique 旗標時，優先採用它而非 bare-tag
+    heuristic —— 即使 selector 本身不是 bare tag，一樣要退化成 .first。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "table",
+        "name": "users_table_0",
+        "selectors": {"container": "table[data-testid=users]"},
+        "metadata": {"selector_unique": False},
+    }
+    runner.generate_test("desc", "test_users_table2.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_users_table2.py").read_text()
+    assert "page.locator('table[data-testid=users]').first" in content
+
+
+def test_generate_test_table_module_selector_unique_true_flag_skips_first(runner, monkeypatch, tmp_path):
+    """反向：selector 是 bare tag，但 metadata 明確標 selector_unique=True
+    （例如頁面上真的只有一個 <table>）—— 旗標優先，不應該硬加 .first。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "table",
+        "name": "users_table_0",
+        "selectors": {"container": "table"},
+        "metadata": {"selector_unique": True},
+    }
+    runner.generate_test("desc", "test_users_table3.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_users_table3.py").read_text()
+    assert "page.locator('table').first" not in content
+    assert "page.locator('table')" in content
+
+
+def test_generate_test_section_module_bare_tag_falls_back_to_heuristic(runner, monkeypatch, tmp_path):
+    """section module 沒有 selector_unique metadata —— 純用 bare-tag
+    heuristic 判斷。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {"kind": "section", "name": "section_0", "selectors": {"container": "section"}}
+    runner.generate_test("desc", "test_section.py", module=module)
+    content = (tmp_path / "test_section.py").read_text()
+    assert "page.locator('section').first" in content
+
+
+def test_generate_test_generic_module_non_bare_selector_does_not_add_first(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {"kind": "widget", "name": "Cart", "selectors": {"container": "#cart"}}
+    runner.generate_test("desc", "test_cart2.py", module=module)
+    content = (tmp_path / "test_cart2.py").read_text()
+    assert "#cart" in content
+    assert ".first" not in content
+
+
+# ---- cta module — 文字定位 ---------------------------------------------------
+
+
+def test_generate_test_cta_module_button_tag_uses_get_by_role_text(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "cta",
+        "name": "cta_confirm_logout",
+        "selectors": {"trigger": "button"},
+        "metadata": {"label_text": "確認登出", "tag": "button"},
+    }
+    runner.generate_test("desc", "test_cta_logout.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_cta_logout.py").read_text()
+    ast.parse(content)
+    assert 'page.get_by_role("button", name=' in content
+    assert "確認登出" in content
+    assert ".first" in content
+    assert "has-text" not in content
+
+
+def test_generate_test_cta_module_non_button_tag_uses_has_text_locator(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "cta",
+        "name": "cta_buy",
+        "selectors": {"trigger": "a.btn"},
+        "metadata": {"label_text": "立即購買", "tag": "a"},
+    }
+    runner.generate_test("desc", "test_cta_buy.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_cta_buy.py").read_text()
+    ast.parse(content)
+    assert ':has-text("立即購買")' in content
+    assert "a.btn" in content
+    assert ".first" in content
+    assert "get_by_role" not in content
+
+
+def test_generate_test_cta_module_label_text_escapes_double_quotes(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "cta",
+        "name": "cta_quote",
+        "selectors": {"trigger": "a.btn"},
+        "metadata": {"label_text": '說"你好"', "tag": "a"},
+    }
+    runner.generate_test("desc", "test_cta_quote.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_cta_quote.py").read_text()
+    tree = ast.parse(content)
+    # 從產出碼裡把真正的 locator 字串值取出來比對 —— 不是比對檔案裡的原始
+    # text（Python 原始碼本身的反斜線跳脫規則會讓比對字串很難寫對），而是
+    # 比對 CSS :has-text(...) 字串實際的「值」：裡面的雙引號要被跳脫成
+    # \" 才是合法的 CSS 字串字面值。
+    literal = next(
+        n.value for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and "has-text" in n.value
+    )
+    assert literal == 'a.btn:has-text("說\\"你好\\"")'
+
+
+def test_generate_test_cta_module_without_label_text_falls_back_to_bare_tag_first(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "cta",
+        "name": "cta_unknown",
+        "selectors": {"trigger": "button"},
+        "metadata": {},
+    }
+    runner.generate_test("desc", "test_cta_unknown.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_cta_unknown.py").read_text()
+    ast.parse(content)
+    assert "page.locator('button').first" in content
+    assert "get_by_role" not in content
+    assert "has-text" not in content
+
+
+# ---- dialog module — open_on_load ------------------------------------------
+
+
+def test_generate_test_dialog_module_open_on_load_false_renders_existence_assertion(runner, monkeypatch, tmp_path):
+    """open_on_load=False 代表 dialog 預設關閉，渲染 visible 斷言必紅——
+    改為存在性／hidden 斷言，並留 TODO 註記要先補觸發步驟。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "dialog",
+        "name": "dialog_confirm_logout",
+        "selectors": {"container": "dialog"},
+        "metadata": {"open_on_load": False},
+    }
+    runner.generate_test("desc", "test_dialog_logout.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_dialog_logout.py").read_text()
+    ast.parse(content)
+    assert "to_be_visible()" not in content
+    assert "to_be_hidden()" in content
+    assert "TODO" in content
+    assert "觸發" in content
+
+
+def test_generate_test_dialog_module_open_on_load_true_keeps_visible_assertion(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "dialog",
+        "name": "dialog_welcome",
+        "selectors": {"container": "dialog"},
+        "metadata": {"open_on_load": True},
+    }
+    runner.generate_test("desc", "test_dialog_welcome.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_dialog_welcome.py").read_text()
+    ast.parse(content)
+    assert "to_be_visible()" in content
+    assert "to_be_hidden()" not in content
+    assert "page.locator('dialog').first" in content
+
+
+def test_generate_test_dialog_module_non_bare_selector_open_on_load_true_no_first(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "dialog",
+        "name": "dialog_welcome",
+        "selectors": {"container": "#welcome-dialog"},
+        "metadata": {"open_on_load": True},
+    }
+    runner.generate_test("desc", "test_dialog_welcome2.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_dialog_welcome2.py").read_text()
+    assert "#welcome-dialog" in content
+    assert ".first" not in content

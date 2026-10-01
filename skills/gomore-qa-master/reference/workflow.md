@@ -85,6 +85,20 @@ run_tests(filter="<new_test_slug>")  # verify the generated test runs
 - Modules look wrong (e.g. login form not detected as "form") → the
   module classifier missed it. Surface the raw output and let the
   user choose which module to feed to `generate_test`.
+- A `form`/`cta`/`table`/`dialog` module now carries `metadata.visible`
+  — an actual rendered-visibility check, separate from `dialog`'s own
+  `open` attribute-state flag. analyzer still records a hidden element
+  as a module (e.g. a closed logout-confirm dialog's cancel/confirm
+  buttons and its own empty `<form>`, or a collapsed sidebar's logout
+  cta) — the user needs to know it exists — but `auto_generate_tests`
+  renders anything flagged `visible: false` as an existence-only
+  skeleton (`to_be_attached()` + a TODO to add the real trigger step)
+  instead of a guaranteed-red `click`/`fill`/`to_be_visible()`. A
+  `table` module that IS visible gets real row-count/header assertions
+  (scoped by `detection`: native/aria get a real row-count check when
+  analysis-time `row_count > 0` plus a first-header `to_contain_text`
+  when `headers` is non-empty; `repeated` stays visibility-only) rather
+  than the old bare `to_be_visible()` + TODO.
 
 ---
 

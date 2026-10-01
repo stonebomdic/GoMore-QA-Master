@@ -267,9 +267,9 @@ _DOM_PROBE_JS = r"""
     if (!el) return null;
     if (el.id) return '#' + esc(el.id);
     const t = el.getAttribute('data-testid');
-    if (t) return `[data-testid="${t}"]`;
+    if (t) return `[data-testid="${escAttr(t)}"]`;
     const n = el.getAttribute('name');
-    if (n && el.tagName === 'INPUT') return `${el.tagName.toLowerCase()}[name="${n}"]`;
+    if (n && ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName)) return `${el.tagName.toLowerCase()}[name="${escAttr(n)}"]`;
     const a = el.getAttribute('aria-label');
     if (a) return `${el.tagName.toLowerCase()}[aria-label="${escAttr(a)}"]`;
     // Last resort before the bare tag name: a gwp-admin-style search box
@@ -399,7 +399,7 @@ _DOM_PROBE_JS = r"""
     Boolean(
       el.id ||
       el.getAttribute('data-testid') ||
-      (el.tagName === 'INPUT' && el.getAttribute('name')) ||
+      (['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) && el.getAttribute('name')) ||
       el.getAttribute('aria-label') ||
       ((el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && el.getAttribute('placeholder'))
     );

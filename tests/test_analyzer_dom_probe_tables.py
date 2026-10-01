@@ -518,6 +518,49 @@ def test_standalone_field_placeholder_with_quote_is_escaped_in_selector():
             browser.close()
 
 
+NAME_ONLY_SELECT_TEXTAREA_HTML = """
+<html><body>
+  <select name="status"><option>all</option><option>active</option></select>
+  <textarea name="note"></textarea>
+</body></html>
+"""
+
+
+def test_standalone_select_and_textarea_with_only_name_are_kept():
+    """A filter-bar `<select name=...>` / `<textarea name=...>` is as common
+    as a placeholder-only search box. The `name` fallback in `sel()` and
+    `hasStableSelector()` must cover SELECT/TEXTAREA, not just INPUT —
+    otherwise the bare-tag drop removes them entirely."""
+    structure = _probe(NAME_ONLY_SELECT_TEXTAREA_HTML)
+    selectors = {f["selector"] for f in structure["standalone_fields"]}
+    assert selectors == {'select[name="status"]', 'textarea[name="note"]'}
+
+
+TESTID_WITH_QUOTE_HTML = """
+<html><body>
+  <input type="text" data-testid='x&quot;y' />
+</body></html>
+"""
+
+
+def test_data_testid_with_quote_is_escaped_and_resolvable():
+    structure = _probe(TESTID_WITH_QUOTE_HTML)
+    fields = structure["standalone_fields"]
+    assert len(fields) == 1
+    selector = fields[0]["selector"]
+    assert selector == '[data-testid="x\\"y"]'
+
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content(TESTID_WITH_QUOTE_HTML)
+            assert page.locator(selector).count() == 1
+        finally:
+            browser.close()
+
+
 def test_dom_probe_end_to_end_through_build_modules():
     """Sanity check: real DOM → `_DOM_PROBE_JS` → `_build_modules()`
     produces a `table` module and an `implicit_form_0` module together."""

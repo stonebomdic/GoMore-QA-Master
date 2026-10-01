@@ -190,6 +190,20 @@ def _is_bare_tag_selector(selector: object) -> bool:
     return bool(_BARE_TAG_SELECTOR_RE.fullmatch(selector))
 
 
+def _module_is_hidden(metadata: object) -> bool:
+    """True only when `metadata.visible` is strictly `False` — the
+    analyzer's `isVisible()` DOM probe check (bounding-rect + computed
+    style), distinct from a dialog's `open_on_load` markup-state flag.
+
+    A module dict with no `visible` key at all (older analyzer output
+    predating this feature, or a hand-built module in a test/caller)
+    must be treated as visible — strict `is False`, never a truthiness
+    check on a missing/`None` key, is what gives that backward
+    compatibility (per-feature requirement: "缺旗標＝舊 module dict
+    視為可見，相容")."""
+    return isinstance(metadata, dict) and metadata.get("visible") is False
+
+
 def _selector_is_non_unique(selector: str, metadata: dict | None) -> bool:
     """Decide whether `selector` is guaranteed unique on the page.
 
@@ -555,6 +569,11 @@ class PytestPlaywrightRunner(TestRunner):
                 # that doesn't exist (review: "implicit form 的 render
                 # 語意對不上").
                 content = self._render_implicit_form_test(description, slug, url, module, business_context)
+            elif _module_is_hidden(md):
+                # analyzer 掃描當下看到這個 form（例如關閉中的登出確認
+                # dialog 裡的空 <form>），但 metadata.visible is False——
+                # 渲染 click/fill 保證紅，改產存在性骨架 + TODO。
+                content = self._render_hidden_form_test(description, slug, url, module, business_context)
             else:
                 content = self._render_form_test(description, slug, url, module, business_context)
         elif isinstance(module, dict):
@@ -741,6 +760,86 @@ class PytestPlaywrightRunner(TestRunner):
             + _OVERFLOW_HINT
         )
 
+    def _render_existence_skeleton_body(
+        self, sel: dict, metadata: dict, *, label_text: str | None = None,
+    ) -> str:
+        """Shared body for a form/cta/table module whose analyzer-time
+        `metadata.visible` is strictly `False` — e.g. the cancel/confirm
+        buttons and empty `<form>` inside a closed logout-confirm
+        `<dialog>`, or an off-canvas (`display:none` / fully offscreen —
+        see `isVisible()`'s docstring in analyzer.py for exactly what
+        does and doesn't count) logout cta (gwp-admin /users real-site
+        regression: 9 筆產出 5 綠 4 紅, all 4 reds this exact shape).
+        Rendering a click/fill/to_be_visible against an
+        element that is not actually visible when the test runs is
+        guaranteed-red; instead this asserts only that the element is
+        attached to the DOM (true at analysis time — analyzer's probe
+        did see it) and leaves a TODO for whoever adds the real trigger
+        step. Deliberately no click/fill/to_be_visible anywhere here.
+
+        Opus review round (I3): a non-unique selector degraded to plain
+        `.first` (e.g. `page.locator('button').first`) makes
+        `to_be_attached()` trivially true against ANY matching element on
+        the page, not specifically the one the analyzer actually found —
+        an assertion that can never fail is worse than no assertion.
+        `metadata.label_text` (cta modules only) is analysis-time
+        observed text, so when it's available AND the selector isn't
+        already unique, this locates by `.filter(has_text=...)` instead
+        of `.first` — a plain DOM/text containment check, which (unlike
+        `get_by_role`) still matches elements excluded from the
+        accessibility tree by `display:none`. When no such text hint
+        exists (table modules, or a cta with no `label_text`) and the
+        selector is non-unique, the degradation comment is upgraded to
+        spell out that the assertion isn't discriminative at all.
+        """
+        target_sel = sel.get("container") or sel.get("trigger") or "body"
+        non_unique = _selector_is_non_unique(target_sel, metadata)
+        has_label = isinstance(label_text, str) and bool(label_text)
+
+        if has_label and non_unique:
+            target_expr = f"page.locator({target_sel!r}).filter(has_text={label_text!r}).first"
+            comment = ""
+        else:
+            target_expr, comment = _container_locator_expr(target_sel, metadata)
+            if non_unique:
+                comment += (
+                    "    # 此存在性斷言不具辨識力（selector 不唯一，且沒有可用的文字線索可過濾）"
+                    "——對同類的任何元素都會通過，請補 data-testid 讓這個元素能被精準定位\n"
+                )
+
+        return (
+            f"{comment}"
+            f"    target = {target_expr}\n"
+            "    expect(target).to_be_attached()\n"
+            "    # TODO: 此元素載入時不可見（例如在關閉的 dialog 內），先補觸發步驟再斷言 visible／互動\n"
+        )
+
+    def _render_hidden_form_test(self, description: str, slug: str, url: str | None, module: dict, business_context: str | None = None) -> str:
+        """Full-file render for a native (non-implicit) `kind: "form"`
+        module whose `metadata.visible` is strictly `False` — see
+        `_render_existence_skeleton_body`'s docstring for why."""
+        sel = module.get("selectors") or {}
+        metadata = module.get("metadata") if isinstance(module.get("metadata"), dict) else {}
+        body = self._render_existence_skeleton_body(sel, metadata)
+
+        tcs = module.get("candidate_tcs") or []
+        tc_block = "\n".join(f"    # TC: {tc}" for tc in tcs[:3])
+        goto_url = url or "https://example.com"
+        bc = self._business_context_block(business_context)
+        module_label = _sanitize_docstring_text(str(module.get("name", "(unnamed)")))
+        return (
+            f'"""Auto-generated from analyze_url module: {module_label} '
+            '(kind=form, visible=False)"""\n'
+            "from playwright.sync_api import Page, expect\n\n\n"
+            f"def test_{slug}(page: Page):\n"
+            f"    {description!r}\n"
+            f"{bc}"
+            f"    page.goto({goto_url!r})\n"
+            f"{body}"
+            + (f"{tc_block}\n" if tc_block else "")
+            + _OVERFLOW_HINT
+        )
+
     def _render_implicit_form_test(self, description: str, slug: str, url: str | None, module: dict, business_context: str | None = None) -> str:
         """Renders `analyzer._build_modules`'s `implicit_form_0` module —
         fields that live outside any `<form>` (bare search/filter inputs
@@ -799,6 +898,31 @@ class PytestPlaywrightRunner(TestRunner):
         goto_url = url or "https://example.com"
         bc = self._business_context_block(business_context)
         module_label = _sanitize_docstring_text(str(module.get("name", "(unnamed)")))
+
+        # Requirement B（跨模組斷言 fail-closed）：搜尋→列數變化這種斷言不
+        # 能直接產成活斷言——搜尋可能要額外按鈕觸發，也可能顯示「無資料」
+        # 列而非 0 列，兩者都會讓這個斷言假紅。`server._auto_generate_tests`
+        # 在同一頁 analysis 有 visible native table 且 row_count > 0 時，把
+        # 精簡過的 `page_tables`（只含 row_count／selector）附加到每個
+        # module dict 上；這裡只把它渲染成一段**註解掉**的現成程式碼，使用
+        # 者確認過頁面行為後自行解除註解。selector 用分析時觀察到的實際
+        # table selector（Opus review round, S2）——寫死 'table' 在頁面有
+        # 多張表、或 selector 根本不是 bare tag 時會靜默選錯表。row locator
+        # 跟 `_render_table_body` 一致改用 `:scope` 覆蓋兩種真實 DOM 形狀
+        # （有無自動 tbody，S3）。
+        page_tables = module.get("page_tables") or []
+        if page_tables:
+            row_count = page_tables[0].get("row_count")
+            table_selector = page_tables[0].get("selector") or "table"
+            cross_module_hint = (
+                "    # 若本頁有資料表，可解除註解驗證搜尋過濾生效：\n"
+                f"    # rows = page.locator({table_selector!r}).first"
+                '.locator(":scope > tbody > tr, :scope > tr")\n'
+                f"    # expect(rows).not_to_have_count({row_count!r})\n"
+            )
+        else:
+            cross_module_hint = ""
+
         return (
             f'"""Auto-generated from analyze_url module: {module_label} '
             '(kind=form, implicit=True)"""\n'
@@ -811,6 +935,7 @@ class PytestPlaywrightRunner(TestRunner):
             + (f"{tc_block}\n" if tc_block else "")
             + "    # TODO: 補上實際斷言，例如：\n"
               "    # expect(page.locator(...)).to_have_count(...)\n"
+            + cross_module_hint
             + _OVERFLOW_HINT
         )
 
@@ -818,13 +943,31 @@ class PytestPlaywrightRunner(TestRunner):
         kind = module.get("kind", "unknown")
         sel = module.get("selectors") or {}
         metadata = module.get("metadata") if isinstance(module.get("metadata"), dict) else {}
+        # table 的真斷言（見 `_render_table_body`）、以及 visible=False 的
+        # 存在性骨架（`_render_existence_skeleton_body` 已經自帶一條
+        # TODO）都是完整的渲染——不該再疊加通用的「補上實際互動與斷言」
+        # TODO 尾巴（避免同一個測試出現兩條語意重疊的 TODO 註解）。
+        suppress_generic_todo = False
 
-        if kind == "cta":
+        if kind in ("cta", "table") and _module_is_hidden(metadata):
+            # metadata.visible is False（嚴格）：analyzer 掃描當下有看到這
+            # 個元素（例如關閉中 dialog 裡的按鈕、display:none 或完全離屏
+            # 的側欄登出鈕），但產測當下它不可見——click/fill/to_be_visible
+            # 一律保證紅，改用
+            # 共用的存在性骨架。cta 有 label_text 時傳入，讓骨架能用
+            # filter(has_text=...) 取代沒有辨識力的 bare-tag .first。
+            label_text = metadata.get("label_text") if kind == "cta" else None
+            body = self._render_existence_skeleton_body(sel, metadata, label_text=label_text)
+            suppress_generic_todo = True
+        elif kind == "cta":
             body = self._render_cta_body(sel, metadata)
         elif kind == "dialog":
             body = self._render_dialog_body(sel, metadata)
+        elif kind == "table":
+            body = self._render_table_body(sel, metadata)
+            suppress_generic_todo = True
         else:
-            # table / section / nav / unrecognized kinds: plain container
+            # section / nav / unrecognized kinds: plain container
             # visibility check, degrading to `.first` when the container
             # selector isn't guaranteed unique (see `_container_locator_expr`).
             target_sel = sel.get("container") or sel.get("trigger") or "body"
@@ -849,9 +992,108 @@ class PytestPlaywrightRunner(TestRunner):
             f"    page.goto({goto_url!r})\n"
             f"{body}"
             + (f"{tc_block}\n" if tc_block else "")
-            + "    # TODO: 補上實際互動與斷言\n"
+            + ("" if suppress_generic_todo else "    # TODO: 補上實際互動與斷言\n")
             + _OVERFLOW_HINT
         )
+
+    def _render_table_body(self, sel: dict, metadata: dict) -> str:
+        """`kind: "table"` module, `metadata.visible` not strictly False
+        (missing/None/True — see `_module_is_hidden`): render real,
+        conservative, fail-closed-on-false-red assertions instead of the
+        old bare `to_be_visible()` + TODO.
+
+        - `detection == "native"`: row-count via a `:scope`-anchored
+          locator (see below); header check via `thead`.
+        - `detection == "aria"`: `[role="row"]` / `[role="columnheader"]`
+          instead.
+        - `detection == "repeated"`: heuristic guess at div-based rows —
+          no row/header locator is reliable enough to assert on, so only
+          the container-visibility assertion is kept (same conservatism
+          `_table_candidate_tcs` already applies to its wording).
+
+        Row-count assertion only fires when analysis-time `row_count > 0`
+        — `expect(...).not_to_have_count(0)` auto-waits, so it tolerates
+        async-loaded rows appearing after the initial render, but a
+        `row_count` of 0 (or missing) at analysis time could mean "this
+        table is legitimately always empty" just as easily as "data
+        loads late", so that case gets a comment instead of a real
+        assertion (dangling a 100%-false-red "should be non-empty"
+        assertion on an intentionally-empty table is exactly the kind of
+        assumption this feature exists to stop making). `isinstance(x,
+        bool)` is excluded even though `bool` is an `int` subclass in
+        Python — a stray boolean `row_count` must never satisfy "> 0"
+        (Opus review round, S6).
+
+        Native row locator (Opus review round, S3): `table.locator("tbody
+        tr")` 0-matches a table BUILT via `document.createElement` +
+        `appendChild` (no `<tbody>` — the browser only auto-inserts one
+        when PARSING an HTML string/document, never for DOM-API-
+        constructed tables) even though `el.tBodies`/`el.rows` (what the
+        analyzer's own probe reads) sees the rows fine. `":scope > tbody
+        > tr, :scope > tr"` covers both real DOM shapes.
+
+        Header assertion (Opus review round, I1+I2 — both real-Chromium
+        repros):
+          - I1: the probe's `headers` list is already `.map(txt).filter
+            (Boolean)` — `headers[0]` is the first NON-EMPTY header text,
+            but the DOM's actual first `<th>` can easily be blank (e.g. a
+            row-selection checkbox column). Asserting against "the first
+            `<th>`" specifically is a selector/content mismatch waiting
+            to happen; asserting the text appears ANYWHERE inside
+            `thead` sidesteps which `<th>` index it landed in.
+          - I2: the probe reads header text via `txt()` (`innerText`,
+            which reflects CSS like `text-transform` and converts `<br>`
+            to newlines), but Playwright's `to_contain_text` compares
+            `textContent` by default — the two diverge exactly when such
+            CSS is present. `use_inner_text=True` makes the assertion
+            compare the same way the probe read it.
+        """
+        container_sel = sel.get("container") or "body"
+        locator_expr, comment = _container_locator_expr(container_sel, metadata)
+        detection = metadata.get("detection") or "native"
+        row_count = metadata.get("row_count")
+        headers = metadata.get("headers") or []
+        has_rows = (
+            isinstance(row_count, int) and not isinstance(row_count, bool) and row_count > 0
+        )
+
+        lines = [
+            comment,
+            f"    table = {locator_expr}\n",
+            "    expect(table).to_be_visible()\n",
+        ]
+
+        if detection == "native":
+            if has_rows:
+                lines.append(
+                    '    rows = table.locator(":scope > tbody > tr, :scope > tr")\n'
+                )
+                lines.append("    expect(rows).not_to_have_count(0)\n")
+            else:
+                lines.append("    # 分析時 0 列：請確認空狀態文案或補資料後再斷言\n")
+            if headers:
+                lines.append(
+                    f'    expect(table.locator("thead")).to_contain_text({headers[0]!r}, '
+                    "use_inner_text=True)\n"
+                )
+        elif detection == "aria":
+            if has_rows:
+                lines.append("    rows = table.locator('[role=\"row\"]')\n")
+                lines.append("    expect(rows).not_to_have_count(0)\n")
+            else:
+                lines.append("    # 分析時 0 列：請確認空狀態文案或補資料後再斷言\n")
+            if headers:
+                # has_text 不經 innerText 轉換（<br> 不會變換行），只拿第一個
+                # 空白分隔 token 比對；has_text 本身不分大小寫，uppercase 樣式無虞。
+                header_token = headers[0].split()[0] if headers[0].split() else headers[0]
+                lines.append(
+                    "    expect(table.locator('[role=\"columnheader\"]')"
+                    f".filter(has_text={header_token!r}).first).to_be_visible()\n"
+                )
+        # detection == "repeated"：啟發式偵測，只留 visible 斷言——不對列
+        # 數/表頭下真斷言（見本函式 docstring）。
+
+        return "".join(lines)
 
     def _render_cta_body(self, sel: dict, metadata: dict) -> str:
         """`kind: "cta"` module: prefer a text-based locator over the raw

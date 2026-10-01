@@ -295,15 +295,65 @@ _DOM_PROBE_JS = r"""
     return i.getAttribute('aria-label') || i.getAttribute('placeholder') || i.getAttribute('name') || '';
   };
 
+  // Shared actual-visibility check — distinct from a `<dialog>`'s `open`
+  // attribute (a DOM/markup state) or any other "is this element the
+  // kind of thing we'd normally show" heuristic. A closed `<dialog>`'s
+  // children (its cancel/confirm buttons, its own empty `<form>`) and a
+  // `display:none` container's cta are exactly the real-world false
+  // positives this exists to flag: analyzer still records them as
+  // modules (the user needs to know they exist), but `visible: false`
+  // tells the renderer not to generate a click/fill/to_be_visible that
+  // would be guaranteed-red out of the box. Bounding-rect zero already
+  // catches "inside a display:none ancestor" (descendants collapse to
+  // 0x0 regardless of their own `display` value), but `visibility` is
+  // inherited and does NOT zero out layout, so the explicit computed-
+  // style check is still needed for that case.
+  //
+  // Deliberately aligned with Playwright's OWN definition of "visible"
+  // (non-empty bounding box + `visibility !== hidden`) — NOT opacity.
+  // Playwright treats `opacity:0` elements as visible/actionable, and so
+  // must this: `opacity:0` is a common MUI/antd-style "visually hidden
+  // but still interactive" technique for a custom checkbox/radio, and an
+  // isVisible that disagreed with Playwright would wrongly drop those
+  // fields from `standalone_fields` entirely (Opus review round, I4).
+  // `layout_warnings` is a different concern (visual regressions, not
+  // interactivity) and keeps its OWN opacity check rather than sharing
+  // this function — see its own filter below.
+  //
+  // Also includes a cheap, approximate offscreen check: an element whose
+  // entire bounding box sits at/before the page's top-left scroll origin
+  // (`position:absolute; left:-9999px`-style visual hiding, still very
+  // common for off-canvas/accessibility-hidden content) counts as not
+  // visible even though its rect is non-zero-sized (Opus review round,
+  // S1). This is intentionally narrow: it catches `left:-9999px` and
+  // fully-offscreen `transform: translateX(-100%)` sidebars (both move
+  // the bounding box), but NOT `width:0; overflow:hidden` collapses
+  // (non-zero box still inside the viewport) nor ancestor clipping — see
+  // callers' docs for what this does and doesn't cover.
+  // The horizontal half is skipped on RTL documents: there the overflow
+  // side is the left, and content scrolled past x<=0 is reachable (a
+  // real cta would otherwise be downgraded to a skeleton).
+  const isRtl = getComputedStyle(document.documentElement).direction === 'rtl';
+  const isVisible = (el) => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    if (r.bottom + window.scrollY <= 0) return false;
+    if (!isRtl && r.right + window.scrollX <= 0) return false;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') return false;
+    return true;
+  };
+
   const forms = [...document.querySelectorAll('form')].map((f, i) => {
-    const fields = [...f.querySelectorAll('input, textarea, select')]
-      .filter(el => el.type !== 'hidden')
-      .map(el => ({
-        label: labelFor(el),
-        selector: sel(el),
-        type: el.tagName === 'INPUT' ? (el.type || 'text') : el.tagName.toLowerCase(),
-        required: el.required || el.getAttribute('aria-required') === 'true',
-      }));
+    const fieldEls = [...f.querySelectorAll('input, textarea, select')]
+      .filter(el => el.type !== 'hidden');
+    const fields = fieldEls.map(el => ({
+      label: labelFor(el),
+      selector: sel(el),
+      type: el.tagName === 'INPUT' ? (el.type || 'text') : el.tagName.toLowerCase(),
+      required: el.required || el.getAttribute('aria-required') === 'true',
+    }));
     const sb = f.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
     return {
       index: i, selector: sel(f),
@@ -311,6 +361,17 @@ _DOM_PROBE_JS = r"""
       method: (f.getAttribute('method') || 'get').toLowerCase(),
       fields,
       submit: sb ? { selector: sel(sb), text: txt(sb) } : null,
+      // The <form> element itself can have a zero-size bounding rect even
+      // though its fields are genuinely visible — `display:contents`
+      // generates no box of its own at all, and an un-cleared float/
+      // absolute-positioned-children layout can collapse the parent's
+      // own height to 0 — so fall back to "any field, or the submit
+      // button, is visible" before calling the whole form invisible
+      // (Opus review round, I5). A form that's ACTUALLY hidden (its own
+      // rect zero/offscreen AND every field/submit also zero/offscreen,
+      // e.g. a closed dialog's empty <form> with no fields at all) still
+      // correctly falls through to `false`.
+      visible: isVisible(f) || fieldEls.some(isVisible) || (sb ? isVisible(sb) : false),
     };
   });
 
@@ -325,7 +386,12 @@ _DOM_PROBE_JS = r"""
   const dialogs = [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]')].map((d, i) => ({
     index: i, selector: sel(d),
     label: d.getAttribute('aria-label') || txt(d.querySelector('h1,h2,h3,[role="heading"]')) || '',
+    // `open` is DOM/markup state (a `<dialog>`'s `open` attribute, or
+    // `[role=dialog]`'s `hidden`); `visible` is the actual rendered
+    // visibility check — they diverge for e.g. a `[role=dialog]` whose
+    // `hidden` attribute is absent but which is `display:none` via CSS.
     open: d.tagName === 'DIALOG' ? d.hasAttribute('open') : !d.hidden,
+    visible: isVisible(d),
   }));
 
   const sections = [...document.querySelectorAll('section[aria-label], section[aria-labelledby], [role="region"][aria-label]')].map((s, i) => {
@@ -340,9 +406,14 @@ _DOM_PROBE_JS = r"""
   const ctaPatterns = ['登入','登出','註冊','結帳','送出','提交','下一步','繼續','購買','加入購物車','搜尋','查詢','確認','取消','訂閱','Sign in','Sign up','Login','Logout','Submit','Continue','Next','Checkout','Subscribe','Buy','Add to cart','Search'];
   const ctas = [...document.querySelectorAll('button, [role="button"], a.button, a.btn')]
     .filter(b => !b.closest('form'))
-    .map(b => ({ text: txt(b), selector: sel(b), tag: b.tagName.toLowerCase() }))
+    .map(b => ({ el: b, text: txt(b), selector: sel(b), tag: b.tagName.toLowerCase() }))
     .filter(b => b.text && ctaPatterns.some(p => b.text.includes(p)))
-    .slice(0, 20);
+    .slice(0, 20)
+    // `isVisible()` forces a layout/style read per element — only worth
+    // paying for on the handful of candidates that survive the text/
+    // pattern filter and the slice(0, 20) cap, not on every button/
+    // [role=button]/a.button/a.btn on the page (Opus review round, S5).
+    .map(b => ({ text: b.text, selector: b.selector, tag: b.tag, visible: isVisible(b.el) }));
 
   // Tables: three-tier detection (native <table> > ARIA grid > repeated
   // fallback), de-duped so the same element is never classified twice —
@@ -461,6 +532,7 @@ _DOM_PROBE_JS = r"""
       row_count: bodyRows.length,
       detection: 'native',
       selector_unique: hasStableSelector(el),
+      visible: isVisible(el),
     });
   });
 
@@ -486,6 +558,7 @@ _DOM_PROBE_JS = r"""
       row_count: rows.length,
       detection: 'aria',
       selector_unique: hasStableSelector(el),
+      visible: isVisible(el),
     });
   });
 
@@ -568,6 +641,7 @@ _DOM_PROBE_JS = r"""
       row_count: rc.rows.length,
       detection: 'repeated',
       selector_unique: true, // guaranteed by the hasStableSelector() guard above
+      visible: isVisible(rc.container),
     });
   });
 
@@ -590,13 +664,7 @@ _DOM_PROBE_JS = r"""
     .filter(el => !el.closest('form'))
     .filter(el => !el.closest('table, [role="grid"], [role="table"], [role="treegrid"]'))
     .filter(el => hasStableSelector(el))
-    .filter(el => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) return false;
-      const cs = getComputedStyle(el);
-      if (cs.visibility === 'hidden' || cs.display === 'none') return false;
-      return true;
-    })
+    .filter(el => isVisible(el))
     .map(el => ({
       label: labelFor(el),
       selector: sel(el),
@@ -618,6 +686,12 @@ _DOM_PROBE_JS = r"""
   // invisible elements + intentional scrollers (overflow: auto/scroll).
   const layout_warnings = [...document.querySelectorAll('body *')]
     .filter(el => {
+      // Deliberately NOT sharing `isVisible()` here (Opus review round,
+      // I4) — this is a visual-regression check (跑版), not an
+      // interactivity check, so its own opacity:0 exclusion is correct
+      // and must stay exactly as it was before isVisible() existed: an
+      // opacity:0 element isn't rendered on screen, so overflow inside
+      // it can never be an actual visual bug a user would see.
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return false;
       const cs = getComputedStyle(el);
@@ -736,6 +810,14 @@ def _build_modules(structure: dict) -> list[dict]:
         else:
             tcs.append("直接點擊送出，應有適當回應或無作用")
 
+        visible = form.get("visible")
+        if visible is False:
+            # 每一條都要加前綴，不是只有第一條——`_select_candidate_tcs`
+            # 在預設 tests_per_module=1 時可能把挑進去的那條換成清單裡的
+            # happy-path TC（而非 tcs[0]），只前綴第一條會讓換掉後選中的
+            # TC 漏掉這個提示（Opus review round, S4）。
+            tcs = [f"（需先觸發顯示）{tc}" for tc in tcs]
+
         modules.append({
             "kind": "form",
             "name": name,
@@ -748,6 +830,7 @@ def _build_modules(structure: dict) -> list[dict]:
                 "method": form.get("method"),
                 "action": form.get("action"),
                 "field_count": len(fields),
+                "visible": visible,
             },
             "candidate_tcs": tcs,
         })
@@ -773,7 +856,7 @@ def _build_modules(structure: dict) -> list[dict]:
             "kind": "dialog",
             "name": _slug(label, f"dialog_{d['index']}"),
             "selectors": {"container": d.get("selector")},
-            "metadata": {"open_on_load": d.get("open")},
+            "metadata": {"open_on_load": d.get("open"), "visible": d.get("visible")},
             "candidate_tcs": [
                 "觸發 dialog 開啟後焦點應落入 dialog 內",
                 "按 ESC 或點擊遮罩應關閉 dialog（如設計允許）",
@@ -793,15 +876,20 @@ def _build_modules(structure: dict) -> list[dict]:
 
     for cta in structure.get("ctas") or []:
         text = cta.get("text") or ""
+        visible = cta.get("visible")
+        cta_tcs = [
+            f"點擊「{text}」應觸發對應動作（導頁／開 dialog／送 API）",
+            f"「{text}」在 loading 狀態下應禁用以避免重複觸發",
+        ]
+        if visible is False:
+            # 同上（form 分支）：每一條都要加前綴，不是只有第一條。
+            cta_tcs = [f"（需先觸發顯示）{tc}" for tc in cta_tcs]
         modules.append({
             "kind": "cta",
             "name": _slug(text, "cta"),
             "selectors": {"trigger": cta.get("selector")},
-            "metadata": {"label_text": text, "tag": cta.get("tag")},
-            "candidate_tcs": [
-                f"點擊「{text}」應觸發對應動作（導頁／開 dialog／送 API）",
-                f"「{text}」在 loading 狀態下應禁用以避免重複觸發",
-            ],
+            "metadata": {"label_text": text, "tag": cta.get("tag"), "visible": visible},
+            "candidate_tcs": cta_tcs,
         })
 
     for t in structure.get("tables") or []:
@@ -819,6 +907,7 @@ def _build_modules(structure: dict) -> list[dict]:
                 "row_count": t.get("row_count"),
                 "detection": detection,
                 "selector_unique": t.get("selector_unique", True),
+                "visible": t.get("visible"),
             },
             "candidate_tcs": _table_candidate_tcs(headers, detection),
         })

@@ -451,6 +451,73 @@ def test_standalone_fields_exclude_display_none():
     assert selectors == {"#visible-one"}
 
 
+# ---------------------------------------------------------------------------
+# Real-page regression: gwp-admin's search box has ONLY a placeholder — no
+# id/data-testid/name/aria-label. The S2 bare-tag drop (previous fix round)
+# dropped it entirely, re-breaking the exact field this whole feature was
+# built to catch (analyze_url on /users came back `implicit_present: False`
+# again). `sel()` + `hasStableSelector()` both needed a placeholder
+# fallback, mirrored between the two.
+# ---------------------------------------------------------------------------
+
+PLACEHOLDER_ONLY_SEARCH_HTML = """
+<html><body>
+  <input type="text" placeholder="搜尋使用者" />
+</body></html>
+"""
+
+
+def test_standalone_field_with_only_placeholder_is_kept_with_placeholder_selector():
+    structure = _probe(PLACEHOLDER_ONLY_SEARCH_HTML)
+    fields = structure["standalone_fields"]
+    assert len(fields) == 1
+    assert fields[0]["selector"] == 'input[placeholder="搜尋使用者"]'
+
+
+NO_ATTRIBUTES_INPUT_HTML = """
+<html><body>
+  <input type="text" />
+</body></html>
+"""
+
+
+def test_standalone_field_with_no_attributes_at_all_is_still_dropped():
+    """An input with no id/data-testid/name/aria-label/placeholder falls
+    all the way back to the bare `"input"` tag selector — still unusable,
+    so it's still dropped (placeholder is an ADDITIONAL stable-selector
+    source, not a blanket exemption from the bare-tag rule)."""
+    structure = _probe(NO_ATTRIBUTES_INPUT_HTML)
+    assert structure["standalone_fields"] == []
+
+
+PLACEHOLDER_WITH_QUOTE_HTML = """
+<html><body>
+  <input type="text" placeholder='Say &quot;hi&quot; here' />
+</body></html>
+"""
+
+
+def test_standalone_field_placeholder_with_quote_is_escaped_in_selector():
+    """A placeholder containing a literal `"` must not break out of the
+    `[placeholder="..."]` selector's string — and the resulting selector
+    must actually still resolve back to the one input via Playwright."""
+    structure = _probe(PLACEHOLDER_WITH_QUOTE_HTML)
+    fields = structure["standalone_fields"]
+    assert len(fields) == 1
+    selector = fields[0]["selector"]
+    assert selector == 'input[placeholder="Say \\"hi\\" here"]'
+
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content(PLACEHOLDER_WITH_QUOTE_HTML)
+            assert page.locator(selector).count() == 1
+        finally:
+            browser.close()
+
+
 def test_dom_probe_end_to_end_through_build_modules():
     """Sanity check: real DOM → `_DOM_PROBE_JS` → `_build_modules()`
     produces a `table` module and an `implicit_form_0` module together."""

@@ -256,6 +256,13 @@ def _api_candidate_tcs(endpoint: dict) -> list[str]:
 _DOM_PROBE_JS = r"""
 () => {
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : (s || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  // Escapes a value going INSIDE a `[attr="..."]` selector's double quotes
+  // (as opposed to `esc()` above, which escapes an #id/.class identifier).
+  // A placeholder/aria-label can legitimately contain a `"` or `\` —
+  // without this, that breaks out of the attribute selector's string and
+  // produces a selector that either throws or silently matches the wrong
+  // thing.
+  const escAttr = (s) => (s || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const sel = (el) => {
     if (!el) return null;
     if (el.id) return '#' + esc(el.id);
@@ -264,7 +271,16 @@ _DOM_PROBE_JS = r"""
     const n = el.getAttribute('name');
     if (n && el.tagName === 'INPUT') return `${el.tagName.toLowerCase()}[name="${n}"]`;
     const a = el.getAttribute('aria-label');
-    if (a) return `${el.tagName.toLowerCase()}[aria-label="${a}"]`;
+    if (a) return `${el.tagName.toLowerCase()}[aria-label="${escAttr(a)}"]`;
+    // Last resort before the bare tag name: a gwp-admin-style search box
+    // is frequently just `<input placeholder="搜尋...">` with none of the
+    // above — without this, every such field fails `hasStableSelector()`
+    // and gets dropped from `standalone_fields` entirely (the exact field
+    // this whole feature was built to catch).
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      const ph = el.getAttribute('placeholder');
+      if (ph) return `${el.tagName.toLowerCase()}[placeholder="${escAttr(ph)}"]`;
+    }
     return el.tagName.toLowerCase();
   };
   const txt = (el) => (el && (el.innerText || el.textContent) || '').trim().slice(0, 80);
@@ -366,18 +382,26 @@ _DOM_PROBE_JS = r"""
     '[role="table"], [role="grid"], [role="treegrid"], [role="listbox"], ' +
     '[role="menu"], [role="tablist"], [role="navigation"]';
 
-  // Elements with no id / data-testid / name / aria-label fall back to a
-  // bare tag-name selector (`sel()`'s last resort) — e.g. plain `"div"`.
-  // That's useless (and actively dangerous: Playwright's strict-mode
-  // locator throws on a non-unique match) as a selector for a *detected*
-  // widget, so the repeated-fallback tier refuses to emit one at all
-  // rather than hand back a selector nobody can safely click.
+  // Elements with no id / data-testid / name / aria-label / placeholder
+  // fall back to a bare tag-name selector (`sel()`'s last resort) — e.g.
+  // plain `"div"`. That's useless (and actively dangerous: Playwright's
+  // strict-mode locator throws on a non-unique match) as a selector for
+  // a *detected* widget, so the repeated-fallback tier refuses to emit
+  // one at all rather than hand back a selector nobody can safely click.
+  // Must mirror `sel()`'s own fallback chain exactly — this function
+  // exists to answer "will `sel()` return something other than a bare
+  // tag name for this element?", so a mismatch here silently reintroduces
+  // the bare-tag problem it's meant to guard against (real regression:
+  // a gwp-admin search `<input placeholder="...">` with no other
+  // attributes was being dropped before `sel()` grew the placeholder
+  // fallback below was mirrored here too).
   const hasStableSelector = (el) =>
     Boolean(
       el.id ||
       el.getAttribute('data-testid') ||
       (el.tagName === 'INPUT' && el.getAttribute('name')) ||
-      el.getAttribute('aria-label')
+      el.getAttribute('aria-label') ||
+      ((el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && el.getAttribute('placeholder'))
     );
 
   // Climbs at most 3 ancestor levels looking for a preceding heading —

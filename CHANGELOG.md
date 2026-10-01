@@ -22,7 +22,8 @@
 - DOM probe 新增共用 `isVisible()` 判斷，標記 form / cta / table / dialog
   的可見性（`a1c3afb`）。
 - `metadata.visible=False` 的 form / cta / table 改為渲染「存在性骨架」
-  斷言，取代先前的省略處理（`ba9d7c0`）。
+  斷言，取代先前對不可見元素仍渲染 `to_be_visible()` / `click()` 而出廠
+  即紅的行為（`ba9d7c0`）。
 
 ### Changed
 - `isVisible()` 對齊 Playwright 的可見性定義，修復表單 / CTA 的可見性
@@ -97,11 +98,12 @@
   PR #6）。
 - 歸檔官網 QA 缺陷報告至 `docs/`，忽略本機掃描 artifact（`5a788ae`，
   PR #6）。
-- BOLA 掃描器改以回應差異比對根治假陽性（`6bcd554`，PR #7）。
+- BOLA 掃描器改以回應差異比對根治假陽性（`6bcd554`，PR #9；此版判定
+  後經覆審否決，由下一條 4-probe 取代）。
 - BOLA 判定邏輯改用 4-probe fingerprint，取代會漏報的「相同即 INFO」
   邏輯；`PublicContent` 改列 HIGH、加萬用字元防呆、調整判定順序
   （`19e49fa` / `a7fdfa4`，PR #9）。
-- pytest-playwright 產生器修復三項缺陷（POC F-1）（`7625c3a`，PR #7）。
+- pytest-playwright 產生器修復三項缺陷（POC F-1）（`7625c3a`，PR #8）。
 - 產生器修正斷言方向、單欄留空誤判、預設流程觸發率（P3 覆審）
   （`266a6a1`，PR #8）。
 - skill 文件 prompt audit：清除 17+ 項 stale facts 與壞連結

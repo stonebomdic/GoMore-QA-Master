@@ -905,8 +905,10 @@ class PytestPlaywrightRunner(TestRunner):
         kind = module.get("kind", "unknown")
         sel = module.get("selectors") or {}
         metadata = module.get("metadata") if isinstance(module.get("metadata"), dict) else {}
-        # table 的真斷言（見 `_render_table_body`）已經是完整的驗證——不該
-        # 再疊加通用的「補上實際互動與斷言」TODO 尾巴。
+        # table 的真斷言（見 `_render_table_body`）、以及 visible=False 的
+        # 存在性骨架（`_render_existence_skeleton_body` 已經自帶一條
+        # TODO）都是完整的渲染——不該再疊加通用的「補上實際互動與斷言」
+        # TODO 尾巴（避免同一個測試出現兩條語意重疊的 TODO 註解）。
         suppress_generic_todo = False
 
         if kind in ("cta", "table") and _module_is_hidden(metadata):
@@ -915,6 +917,7 @@ class PytestPlaywrightRunner(TestRunner):
             # 產測當下它不可見——click/fill/to_be_visible 一律保證紅，改用
             # 共用的存在性骨架。
             body = self._render_existence_skeleton_body(sel, metadata)
+            suppress_generic_todo = True
         elif kind == "cta":
             body = self._render_cta_body(sel, metadata)
         elif kind == "dialog":

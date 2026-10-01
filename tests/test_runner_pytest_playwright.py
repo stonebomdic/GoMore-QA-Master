@@ -563,6 +563,86 @@ def test_generate_test_implicit_form_clear_description_fills_empty_string(runner
     assert 'page.locator(\'#q\').press("Enter")' in content
 
 
+def test_generate_test_implicit_form_all_checkbox_fields_checks_instead_of_fill(runner, monkeypatch, tmp_path):
+    """Review N3: naively falling back to `fields[0]` and calling `.fill()`
+    on it crashes for real — Playwright rejects `.fill()` on a checkbox
+    ("Input of type checkbox cannot be filled"). With no text/search-like
+    field at all, a checkbox-only implicit form must render `.check()`
+    and must NOT press Enter afterward (that's not "submitting a
+    search", it's a different, unverified action)."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [
+                {"label": "啟用", "selector": "#active", "type": "checkbox", "required": False},
+                {"label": "已驗證", "selector": "#verified", "type": "checkbox", "required": False},
+            ],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 2},
+        "candidate_tcs": ["TC"],
+    }
+    runner.generate_test("desc", "test_checkbox.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_checkbox.py").read_text()
+    ast.parse(content)
+    assert "page.locator('#active').check()" in content
+    assert ".fill(" not in content
+    assert "press(" not in content
+
+
+def test_generate_test_implicit_form_all_select_fields_uses_select_option(runner, monkeypatch, tmp_path):
+    """Same crash class as the checkbox case: `.fill()` on a `<select>`
+    also isn't valid Playwright — a select-only implicit form must use
+    `select_option(index=1)` and must not press Enter afterward."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [
+                {"label": "狀態", "selector": "#status", "type": "select", "required": False},
+            ],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 1},
+        "candidate_tcs": ["TC"],
+    }
+    runner.generate_test("desc", "test_select_only.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_select_only.py").read_text()
+    ast.parse(content)
+    assert "page.locator('#status').select_option(index=1)" in content
+    assert ".fill(" not in content
+    assert "press(" not in content
+
+
+def test_generate_test_form_module_with_non_dict_metadata_does_not_crash(runner, monkeypatch, tmp_path):
+    """Review S1: `(module.get("metadata") or {}).get("implicit")` throws
+    AttributeError the moment a caller hands a non-dict `metadata` (e.g. a
+    list) — `.get()` doesn't exist on a list. Must fall back to the
+    regular (non-implicit) form renderer instead of crashing."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+        "metadata": ["not", "a", "dict"],
+        "candidate_tcs": ["TC1"],
+    }
+    runner.generate_test("desc", "test_weird_metadata.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_weird_metadata.py").read_text()
+    ast.parse(content)
+    # Took the regular form path: fills the field and clicks the submit.
+    assert "#email" in content
+    assert "#submit" in content
+
+
 def test_generate_test_generic_module_renders_container(runner, monkeypatch, tmp_path):
     monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
     module = {"kind": "widget", "name": "Cart", "selectors": {"container": "#cart"}}

@@ -270,7 +270,10 @@ def test_implicit_form_candidate_tcs_exclude_submit_wording():
     assert "清空" in joined
 
 
-def test_implicit_form_email_tc_present_when_email_field_exists():
+def test_implicit_form_candidate_tcs_exclude_email_format_wording():
+    """review N4：`_render_implicit_form_test` 只在「完全沒有 text/search
+    欄位」時才會退而求其次碰到 email 欄位——多數情況下 email 欄位根本不
+    會被實際渲染進測試，candidate_tcs 不該斷言一個通常不會發生的互動。"""
     structure = {
         "standalone_fields": [
             {"label": "Email", "selector": "#email", "type": "email", "required": True},
@@ -279,7 +282,8 @@ def test_implicit_form_email_tc_present_when_email_field_exists():
     modules = _build_modules(structure)
     f = _form_modules(modules)[0]
     joined = "\n".join(f["candidate_tcs"])
-    assert "Email" in joined
+    assert "Email" not in joined
+    assert "格式錯誤" not in joined
 
 
 def test_implicit_form_candidate_tcs_exclude_single_field_empty_wording():

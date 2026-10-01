@@ -391,7 +391,7 @@ def test_standalone_fields_exclude_checkboxes_inside_table():
     assert selectors == {"#q"}
 
 
-DUPLICATE_SELECTOR_FIELDS_HTML = """
+BARE_TAG_FIELDS_HTML = """
 <html><body>
   <div>
     <input type="checkbox" />
@@ -402,15 +402,39 @@ DUPLICATE_SELECTOR_FIELDS_HTML = """
 """
 
 
-def test_standalone_fields_dedupe_by_selector():
+def test_standalone_fields_drop_bare_tag_selector_fields_entirely():
     """Two nameless/unlabelled checkboxes both fall back to the bare
-    `"input"` selector — without de-duping, both would appear as
-    separate fields pointing at the exact same (non-unique) locator."""
-    structure = _probe(DUPLICATE_SELECTOR_FIELDS_HTML)
+    `"input"` selector — that's unusable as a Playwright locator the
+    moment there's more than one on the page, so (review S2) they're
+    dropped outright rather than merged into one field."""
+    structure = _probe(BARE_TAG_FIELDS_HTML)
+    fields = structure["standalone_fields"]
+    selectors = {f["selector"] for f in fields}
+    assert selectors == {"#q"}
+
+
+RADIO_GROUP_SAME_NAME_HTML = """
+<html><body>
+  <input type="radio" name="choice" value="a" />
+  <input type="radio" name="choice" value="b" />
+  <input type="text" id="q" />
+</body></html>
+"""
+
+
+def test_standalone_fields_dedupe_backstop_for_shared_stable_selector():
+    """A same-`name` radio group legitimately shares one STABLE selector
+    (`input[name="choice"]`, not a bare tag) across multiple real
+    elements — the de-dupe pass (kept as a backstop after the bare-tag
+    drop) collapses that down to one field entry instead of two
+    duplicates."""
+    structure = _probe(RADIO_GROUP_SAME_NAME_HTML)
     fields = structure["standalone_fields"]
     assert len(fields) == 2
     selectors = [f["selector"] for f in fields]
     assert len(selectors) == len(set(selectors))
+    radio = next(f for f in fields if f["type"] == "radio")
+    assert radio["selector"] == 'input[name="choice"]'
 
 
 DISPLAY_NONE_FIELD_HTML = """

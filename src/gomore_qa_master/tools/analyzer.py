@@ -332,8 +332,7 @@ _DOM_PROBE_JS = r"""
   // fallback), de-duped so the same element is never classified twice —
   // native/aria elements are tracked in `seenTableEls` before the next
   // tier runs, so a lower-priority tier simply skips anything already
-  // claimed (including anything *nested inside* an already-claimed
-  // element — see `insideSeen` below). gwp-admin-style Tailwind back
+  // claimed. gwp-admin-style Tailwind back
   // offices render data tables as plain <table> (the common case) but
   // some ship ARIA grids, and some ship neither — just N repeated
   // sibling rows (divs) — hence the fallback tier.
@@ -471,17 +470,36 @@ _DOM_PROBE_JS = r"""
   // (`REPEATED_EXCLUDE_SELECTOR`) and leaf-ish rows (`looksLikeRow`).
   // Signature grouping keeps us from matching an unrelated mix of
   // siblings (e.g. a header + N cards) as "the rows".
+  //
+  // Known trade-offs (reviewed + accepted, not bugs):
+  //   1. Unlike native/aria (always emitted, flagged `selector_unique:
+  //      false` when the selector is just a bare tag), this tier refuses
+  //      to emit anything without a *stable* container selector at all.
+  //      Deliberate asymmetry: native/aria are structurally confident
+  //      detections even when the selector happens to be unstable,
+  //      whereas "repeated" is already a low-confidence guess — stacking
+  //      an unusable selector on top of that guess isn't worth surfacing.
+  //   2. `A` is in `LEAF_ROW_TAGS`, so a list where the *entire row* is a
+  //      link (`<a class="row">...</a>` repeated N times) is never
+  //      detected — it looks leaf-ish like a plain CTA, not a data row.
+  //      Known gap, not handled here.
+  //   3. The greedy containment-dedup (below) picks by raw row *count*,
+  //      not depth. If a container's rows themselves have more same-
+  //      signature cells than the container has rows (e.g. 3 rows of 6
+  //      cells each), the row-level candidate could rank above the
+  //      container-level one and get picked instead. Rare in practice
+  //      (real data tables have more rows than columns) — not handled.
   const signature = (el) => el.tagName + '|' + [...el.classList].sort().join('.');
-  const insideSeen = (el) => {
-    for (const s of seenTableEls) {
-      if (s !== el && s.contains(el)) return true;
-    }
-    return false;
-  };
   const repeatedCandidates = [];
   [...document.querySelectorAll('body *')].forEach((container) => {
     if (container.tagName === 'SCRIPT' || container.tagName === 'STYLE') return;
-    if (seenTableEls.has(container) || insideSeen(container)) return;
+    // No separate "is this nested inside an already-claimed element?"
+    // check needed: by this point `seenTableEls` only holds native
+    // <table> elements and ARIA table/grid/treegrid elements (tiers a/b
+    // above), and `REPEATED_EXCLUDE_SELECTOR` already includes `table`
+    // and `[role="table"/"grid"/"treegrid"]` — so `closest()` below
+    // catches every such ancestor (at any depth) on its own.
+    if (seenTableEls.has(container)) return;
     if (container.closest(REPEATED_EXCLUDE_SELECTOR)) return;
     if (!hasStableSelector(container)) return;
     const children = [...container.children].filter(
@@ -534,13 +552,20 @@ _DOM_PROBE_JS = r"""
   // data table, not wrapped in <form>, so the form-scoped collector above
   // never sees them. Also excludes anything inside an already-detected
   // table/grid (e.g. a per-row selection checkbox) — that's the table's
-  // concern, not a standalone filter field — and de-dupes by selector so
-  // a non-unique selector (e.g. several checkboxes all falling back to
-  // the bare "input" tag) isn't repeated N times.
+  // concern, not a standalone filter field. Fields without a stable
+  // selector (no id/data-testid/name/aria-label — `hasStableSelector()`,
+  // same guard as the repeated-table tier) are dropped outright rather
+  // than just de-duped: a Playwright locator built from a bare tag name
+  // is unusable the moment there's more than one such field on the page,
+  // so there's nothing useful left to de-dupe down to. The de-dupe pass
+  // still runs after that as a backstop for the (stable-but-not-unique)
+  // case of several elements legitimately sharing one selector, e.g. a
+  // same-`name` radio group.
   const seenStandaloneSelectors = new Set();
   const standalone_fields = [...document.querySelectorAll('input:not([type=hidden]), textarea, select')]
     .filter(el => !el.closest('form'))
     .filter(el => !el.closest('table, [role="grid"], [role="table"], [role="treegrid"]'))
+    .filter(el => hasStableSelector(el))
     .filter(el => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) return false;
@@ -635,7 +660,9 @@ def _table_candidate_tcs(headers: list[str], detection: str) -> list[str]:
 def _implicit_form_candidate_tcs(fields: list[dict]) -> list[str]:
     """Candidate TCs for the aggregated `standalone_fields` module.
 
-    Deliberately excludes two kinds of wording that native-form TCs use:
+    Deliberately excludes wording that native-form TCs use but doesn't
+    match either the field semantics or `_render_implicit_form_test`'s
+    actual rendering:
       - "送出/提交"（submit）— these fields have no enclosing <form>/submit
         button; the "submission" is implicit (Enter key, live filter,
         etc.), not a button click.
@@ -647,11 +674,14 @@ def _implicit_form_candidate_tcs(fields: list[dict]) -> list[str]:
         validate required-ness) and doesn't match how
         `_render_implicit_form_test` actually renders (fill one field,
         press Enter).
+      - Email format-validation wording — `_render_implicit_form_test`
+        always prefers a text/search field as the one it fills; an email
+        field is only ever touched as a last-resort fallback (no text-
+        like field at all), so asserting "format error" behavior here
+        would describe an interaction the renderer usually never
+        performs (review N4).
     """
-    has_email = any((f.get("type") or "").lower() == "email" for f in fields)
     tcs: list[str] = ["輸入關鍵字後按 Enter 應觸發查詢／過濾"]
-    if has_email:
-        tcs.append("Email 欄位填入格式錯誤的字串（無 @），應顯示格式錯誤")
     tcs.append("清空輸入應還原列表")
     return tcs
 

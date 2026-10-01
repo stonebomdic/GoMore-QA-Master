@@ -40,7 +40,7 @@ The `.codex-plugin/plugin.json` manifest installs both the skill and
 the MCP server entry in one go:
 
 ```bash
-codex plugin marketplace add kao273183/gomore-qa-master
+codex plugin marketplace add stonebomdic/GoMore-QA-Master
 codex
 /plugins
 # install gomore-qa-master from the browser
@@ -85,15 +85,15 @@ are still callable directly. This loses the structured tool schemas
 but keeps the underlying functionality:
 
 ```bash
-pip install gomore-qa-master==0.9.0
+pip install 'gomore-qa-master @ git+https://github.com/stonebomdic/GoMore-QA-Master.git'
 
 # Run tests
 python -c "from gomore_qa_master.tools.runner import run_tests; \
            print(run_tests(filter='login'))"
 
 # Generate report
-python -c "from gomore_qa_master.tools.reporter import generate_html; \
-           generate_html()"
+python -c "from gomore_qa_master.reporters.html import write_report; \
+           print(write_report('report.html'))"
 
 # API security scan
 python -c "

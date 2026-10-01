@@ -61,8 +61,10 @@ run_tests(filter="<new_test_slug>")  # verify the generated test runs
 ### When `analyze_url` returns weird output
 
 - 0 modules detected → site might be SPA-rendered. Try
-  `timeout_ms=30000` to give it more time, or pass `auth_cookie` if
-  the content lives behind login.
+  `timeout_ms=30000` to give it more time, or pass `auth_cookie`
+  (cookie-session sites) / `auth_storage` (localStorage-token SPAs;
+  values support `$ENV_NAME` indirection) if the content lives behind
+  login.
 - Modules look wrong (e.g. login form not detected as "form") → the
   module classifier missed it. Surface the raw output and let the
   user choose which module to feed to `generate_test`.
@@ -121,18 +123,18 @@ If the user is hitting CAPTCHAs in dev, suggest tier 1 first.
 
 ### Hard-stop domains
 
-The visual-challenge subsystem refuses to operate on third-party identity
+Never attempt CAPTCHA bypass or solving against third-party identity
 providers (`accounts.google.com`, `login.microsoftonline.com`,
-`id.apple.com`, etc.) regardless of consent. No legitimate QA scenario
-justifies solving CAPTCHAs on someone else's login page.
+`id.apple.com`, etc.), regardless of consent. No legitimate QA scenario
+justifies working around CAPTCHAs on someone else's login page.
 
 ---
 
 ## Flow 5 — OWASP API security scan (v0.8.0+)
 
 Gates: `QA_API_SECURITY_CONSENT=true` + non-localhost hosts must be in
-`QA_API_SECURITY_AUTHORIZED_DOMAINS`. See `api-security-deep.md` for
-the full per-rule semantics.
+`QA_API_SECURITY_AUTHORIZED_DOMAINS`. See `commands/api-security.md`
+for the gate checklist and per-rule auth requirements.
 
 ```
   (decide categories — mass_assignment opt-in only)
@@ -155,10 +157,14 @@ Default: NO. It POSTs probe data. Include only when:
 
 ### When to omit `bola` / `function_authz`
 
-If the user didn't provide BOTH `auth.token` AND `auth.alt_user_token`,
-these rules can't do their two-user diff. They'll emit INFO "skipped"
-findings rather than firing false positives. That's by design — don't
-suppress those INFO entries when the user asks "did BOLA run?"
+BOLA needs `auth.token` + `auth.alt_user_token` **and**
+`auth.bola_test_ids` (each user's own object ids) to do its multi-probe
+diff; `function_authz` needs the two tokens. Missing pieces make the
+rules emit INFO "skipped" findings rather than firing false positives.
+That's by design — don't suppress those INFO entries when the user
+asks "did BOLA run?" Known login-shared resources can be declared in
+`auth.bola_shared_endpoints` (glob path patterns) to downgrade them to
+INFO `DeclaredShared` instead of CRITICAL.
 
 ---
 

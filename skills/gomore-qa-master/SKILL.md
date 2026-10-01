@@ -1,6 +1,6 @@
 ---
 name: gomore-qa-master
-description: Run, generate, debug, and improve software tests through gomore-qa-master's MCP tools (pytest / Playwright / Jest / Cypress / Maestro / Schemathesis / Newman) and its v0.7 AI Visual Challenge Solver (reCAPTCHA / hCaptcha) and v0.8 OWASP API Security Top 10 scanner. Use when the user asks to run their test suite, diagnose a failing test, generate new tests from a URL or mobile screen, scan an OpenAPI spec for security findings, solve a CAPTCHA blocking a test, or get a self-improvement plan for their suite. Auto-activates from phrases like "run my tests", "why did this test fail", "generate tests for this URL", "scan this API for OWASP issues", "the test is stuck on a reCAPTCHA".
+description: Run, generate, debug, and improve software tests through gomore-qa-master's MCP tools (pytest / Playwright / Jest / Cypress / Maestro / Schemathesis / Newman) and its OWASP API Security Top 10 scanner. Use when the user asks to run their test suite, diagnose a failing test, generate new tests from a URL or mobile screen, scan an OpenAPI spec for security findings, unblock a test stuck on a CAPTCHA (bypass-first methodology), or get a self-improvement plan for their suite. Auto-activates from phrases like "run my tests", "why did this test fail", "generate tests for this URL", "scan this API for OWASP issues", "the test is stuck on a reCAPTCHA".
 allowed-tools: Bash, Read, Write, Edit
 ---
 
@@ -8,9 +8,9 @@ allowed-tools: Bash, Read, Write, Edit
 
 You are operating as the gomore-qa-master agent. The user wants to run, generate,
 debug, or harden their software tests. gomore-qa-master ships as an MCP server
-with **19 tools**, a bilingual QA knowledge layer, and three specialty
-subsystems (visual challenge solver, OWASP API security scanner, self-
-improvement loop). This skill is the **single-file operating contract** —
+with **19 tools**, a bilingual QA knowledge layer, and two specialty
+subsystems (OWASP API security scanner, self-improvement loop), plus a
+bypass-first CAPTCHA methodology in the knowledge layer. This skill is the **single-file operating contract** —
 same file loads in Claude Code, OpenAI Codex, OpenClaw, and Hermes via the
 [agentskills.io](https://agentskills.io) convention.
 
@@ -38,7 +38,9 @@ Either:
 2. **gomore-qa-master is installed but not wired.** Use Bash to call
    `gomore-qa-master` CLI entrypoint, or `python -m gomore_qa_master.server` to
    bring it up. See `reference/wire-mcp.md`.
-3. **Not installed.** Run `pip install gomore-qa-master==0.9.0` then re-prompt.
+3. **Not installed.** Run
+   `pip install 'gomore-qa-master @ git+https://github.com/stonebomdic/GoMore-QA-Master.git'`
+   (or `pip install -e '.[api]'` from a local checkout), then re-prompt.
 
 Per-runner extras (only install what the user actually needs):
 
@@ -166,7 +168,7 @@ Goal: surface what's in the project, run a focused subset, report results.
 
 Goal: produce maintainable pytest tests automatically.
 
-1. `analyze_url(url, timeout_ms, auth_cookie)` — discovers form / cta /
+1. `analyze_url(url, timeout_ms, auth_cookie, auth_storage)` — discovers form / cta /
    tab_bar / table modules plus candidate test cases per module. Surface
    the module count and candidate count to the user before generating.
 2. For mobile: `analyze_screen(...)` instead.
@@ -174,8 +176,9 @@ Goal: produce maintainable pytest tests automatically.
    bundles the chain.
 4. If the user wants ONE specific test, `generate_test(description,
    filename, url, module)` is more surgical.
-5. ALWAYS run the generated tests once with `run_tests(filter="<new_test>")`
-   before reporting "done".
+5. Run the generated tests once with `run_tests(filter="<new_test>")`
+   before reporting "done" — generated tests that were never executed
+   are not a deliverable.
 
 ### Flow 3 — "Debug a failure"
 
@@ -198,7 +201,8 @@ tiers — always attempt in order:
    assertions.
 3. Escalate to a human if neither tier 1 nor tier 2 applies.
 
-Read `reference/captcha-solver.md` for the bypass-first methodology.
+The full bypass-first methodology lives in the QA knowledge layer:
+`get_qa_context(section="CAPTCHA")`.
 
 ### Flow 5 — "Scan an API for OWASP issues" (v0.8.0+)
 
@@ -232,16 +236,18 @@ run_api_security_scan(spec_url, auth, plan_id=plan_id) → {
 }
 ```
 
-Read `reference/api-security-deep.md` for the full rule semantics +
-opt-in checklist + how to wire two-user `auth_pair` config for BOLA.
+See `commands/api-security.md` for the gate checklist and how to wire
+two-user auth (`token` + `alt_user_token` + `bola_test_ids`; optional
+`bola_shared_endpoints` glob list to declare known-shared paths) for
+BOLA, and `reference/tool-surface.md` for schema gotchas.
 
 ## Hard rules
 
 - **No fabricated tool calls.** Every tool name you announce must be in the
   19-tool surface (see `reference/tool-surface.md`). If a host wraps the
   MCP server, the tool names stay the same.
-- **Surface consent errors verbatim.** v0.7 visual challenge and v0.8 API
-  security both gate on env vars. When the tool returns `consent_required`
+- **Surface consent errors verbatim.** The API security scanner gates on
+  env vars. When the tool returns `consent_required`
   or `unauthorized_domain`, the user MUST see the original `hint` field —
   do NOT paraphrase, do NOT silently drop the warning.
 - **Confirm before destructive runs.** `mass_assignment` (API3) mutates
@@ -281,6 +287,6 @@ The MCP tool surface is **callable** by any host, but each host has a
 different way to **discover** what gomore-qa-master is for. The skill file is
 the canonical narrative the host's skill router parses — same description
 text, same allowed-tools constraint, same workflow rules, regardless of
-whether you're inside Claude Code, Codex, OpenClaw, or Hermes. v0.9.0
-makes that single file the source of truth instead of duplicating
-instructions across host-specific configs.
+whether you're inside Claude Code, Codex, OpenClaw, or Hermes. This
+single file is the source of truth; host-specific configs only point
+at it.

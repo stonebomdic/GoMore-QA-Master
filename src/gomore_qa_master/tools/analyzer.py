@@ -328,6 +328,141 @@ _DOM_PROBE_JS = r"""
     .filter(b => b.text && ctaPatterns.some(p => b.text.includes(p)))
     .slice(0, 20);
 
+  // Tables: three-tier detection (native <table> > ARIA grid > repeated
+  // fallback), de-duped so the same element is never classified twice —
+  // native/aria elements are tracked in `seenTableEls` before the next
+  // tier runs, so a lower-priority tier simply skips anything already
+  // claimed. gwp-admin-style Tailwind back offices render data tables as
+  // plain <table> (the common case) but some ship ARIA grids, and some
+  // ship neither — just N repeated sibling rows (divs) — hence the
+  // fallback tier.
+  const seenTableEls = new Set();
+  const tables = [];
+
+  const nearbyHeading = (el) => {
+    let node = el;
+    while (node) {
+      let sib = node.previousElementSibling;
+      while (sib) {
+        if (/^H[1-6]$/.test(sib.tagName) || sib.getAttribute('role') === 'heading') {
+          const t = txt(sib);
+          if (t) return t;
+        }
+        sib = sib.previousElementSibling;
+      }
+      node = node.parentElement;
+      if (!node || node === document.body) break;
+    }
+    return '';
+  };
+
+  const tableLabel = (el, captionEl) => {
+    if (captionEl) {
+      const c = txt(captionEl);
+      if (c) return c;
+    }
+    const aria = el.getAttribute('aria-label');
+    if (aria) return aria;
+    return nearbyHeading(el);
+  };
+
+  // a. native <table>
+  [...document.querySelectorAll('table')].forEach((el) => {
+    seenTableEls.add(el);
+    const caption = el.querySelector('caption');
+    const headers = [...el.querySelectorAll('thead th')].map(txt).filter(Boolean).slice(0, 20);
+    const bodyRows = [...el.querySelectorAll('tbody tr')];
+    const firstRow = bodyRows[0] || el.querySelector('tr');
+    tables.push({
+      index: tables.length,
+      selector: sel(el),
+      label: tableLabel(el, caption),
+      headers,
+      column_count: headers.length || (firstRow ? firstRow.children.length : 0),
+      row_count: bodyRows.length,
+      detection: 'native',
+    });
+  });
+
+  // b. ARIA table/grid/treegrid, excluding anything already native.
+  [...document.querySelectorAll('[role="table"], [role="grid"], [role="treegrid"]')].forEach((el) => {
+    if (seenTableEls.has(el) || el.closest('table')) return;
+    seenTableEls.add(el);
+    const headers = [...el.querySelectorAll('[role="columnheader"]')].map(txt).filter(Boolean).slice(0, 20);
+    const rows = [...el.querySelectorAll('[role="row"]')]
+      .filter(r => !r.querySelector(':scope > [role="columnheader"]') && r.getAttribute('role') !== 'columnheader');
+    tables.push({
+      index: tables.length,
+      selector: sel(el),
+      label: tableLabel(el, null),
+      headers,
+      column_count: headers.length,
+      row_count: rows.length,
+      detection: 'aria',
+    });
+  });
+
+  // c. fallback: ≥4 repeated same-signature (tagName + sorted classList)
+  // children in one container, skipping table/nav/ul/ol internals and
+  // SCRIPT/STYLE. Signature grouping keeps us from matching an
+  // unrelated mix of siblings (e.g. a header + N cards) as "the rows".
+  const signature = (el) => el.tagName + '|' + [...el.classList].sort().join('.');
+  const repeatedCandidates = [];
+  [...document.querySelectorAll('body *')].forEach((container) => {
+    if (container.tagName === 'SCRIPT' || container.tagName === 'STYLE') return;
+    if (seenTableEls.has(container)) return;
+    if (container.closest('table, nav, ul, ol')) return;
+    const children = [...container.children].filter(
+      c => c.tagName !== 'SCRIPT' && c.tagName !== 'STYLE'
+    );
+    if (children.length < 4) return;
+    const groups = new Map();
+    children.forEach((c) => {
+      const s = signature(c);
+      if (!groups.has(s)) groups.set(s, []);
+      groups.get(s).push(c);
+    });
+    let best = null;
+    groups.forEach((group) => {
+      if (group.length >= 4 && (!best || group.length > best.length)) best = group;
+    });
+    if (best) repeatedCandidates.push({ container, rows: best });
+  });
+  repeatedCandidates.sort((a, b) => b.rows.length - a.rows.length);
+  repeatedCandidates.slice(0, 5).forEach((rc) => {
+    seenTableEls.add(rc.container);
+    tables.push({
+      index: tables.length,
+      selector: sel(rc.container),
+      label: tableLabel(rc.container, null),
+      headers: [],
+      column_count: 0,
+      row_count: rc.rows.length,
+      detection: 'repeated',
+    });
+  });
+
+  // Fields that live outside any <form> — search boxes / filter bars in
+  // gwp-admin-style back offices are frequently bare inputs next to a
+  // data table, not wrapped in <form>, so the form-scoped collector above
+  // never sees them.
+  const standalone_fields = [...document.querySelectorAll('input:not([type=hidden]), textarea, select')]
+    .filter(el => !el.closest('form'))
+    .filter(el => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return false;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden' || cs.display === 'none') return false;
+      return true;
+    })
+    .map(el => ({
+      label: labelFor(el),
+      selector: sel(el),
+      type: el.tagName === 'INPUT' ? (el.type || 'text') : el.tagName.toLowerCase(),
+      required: el.required || el.getAttribute('aria-required') === 'true',
+    }))
+    .slice(0, 30);
+
   // Layout warnings: visible elements whose content overflows their container.
   // Threshold tuning: horizontal >2px is almost always a real break (text
   // 跑版, hard-px width, etc.). Vertical <=10px is usually line-height /
@@ -361,7 +496,7 @@ _DOM_PROBE_JS = r"""
       };
     });
 
-  return { forms, navs, dialogs, sections, ctas, layout_warnings };
+  return { forms, navs, dialogs, sections, ctas, tables, standalone_fields, layout_warnings };
 }
 """
 
@@ -371,6 +506,53 @@ def _slug(text: str, fallback: str) -> str:
         return fallback
     s = re.sub(r"[^\w]+", "_", text.lower()).strip("_")
     return s or fallback
+
+
+def _table_candidate_tcs(headers: list[str], detection: str) -> list[str]:
+    """Candidate TCs for a `kind: "table"` module.
+
+    Always covers five scenarios: row load/empty-state, pagination,
+    column sort, search/filter, row click → detail. When `detection`
+    is "repeated" (a heuristic guess at div-based row structures, not a
+    real `<table>`/ARIA grid), the wording is hedged ("疑似資料列表")
+    instead of asserting it's definitely a table/grid. When `headers`
+    is non-empty, the sort TC references the first header by name to
+    make it directly actionable.
+    """
+    conservative = detection == "repeated"
+    subject = "疑似資料列表" if conservative else "表格"
+    tcs = [
+        f"{subject}載入後應有資料列（row_count > 0 或顯示空狀態提示）",
+        f"{subject}切換分頁後列內容應變更，且列數應符合 page size（若有分頁）",
+    ]
+    if headers:
+        tcs.append(f"點擊「{headers[0]}」欄位標題排序後，資料應依該欄重新排序")
+    else:
+        tcs.append(f"{subject}欄位排序點擊後應依該欄排序（若支援排序）")
+    tcs.append(f"{subject}搜尋／過濾後列數應減少，且內容與條件相符（若支援搜尋／過濾）")
+    tcs.append(f"點擊{subject}中任一列（若可點擊）應開啟詳情")
+    return tcs
+
+
+def _implicit_form_candidate_tcs(fields: list[dict]) -> list[str]:
+    """Candidate TCs for the aggregated `standalone_fields` module.
+
+    Mirrors the native-form TCs' shape (required-field / format checks)
+    but deliberately excludes any "送出/提交" (submit) wording — these
+    fields have no enclosing <form>/submit button, so the "submission"
+    is implicit (Enter key, live filter, etc.), not a button click.
+    """
+    required = [f for f in fields if f.get("required")]
+    has_email = any((f.get("type") or "").lower() == "email" for f in fields)
+
+    tcs: list[str] = ["輸入關鍵字後按 Enter 應觸發查詢／過濾"]
+    for f in required[:3]:
+        label = f.get("label") or f.get("selector") or "field"
+        tcs.append(f"只填其他欄位、{label} 留空，應視為忽略該條件或顯示提示")
+    if has_email:
+        tcs.append("Email 欄位填入格式錯誤的字串（無 @），應顯示格式錯誤")
+    tcs.append("清空輸入應還原列表")
+    return tcs
 
 
 def _build_modules(structure: dict) -> list[dict]:
@@ -465,6 +647,41 @@ def _build_modules(structure: dict) -> list[dict]:
                 f"點擊「{text}」應觸發對應動作（導頁／開 dialog／送 API）",
                 f"「{text}」在 loading 狀態下應禁用以避免重複觸發",
             ],
+        })
+
+    for t in structure.get("tables") or []:
+        headers = t.get("headers") or []
+        detection = t.get("detection") or "native"
+        label = t.get("label") or ""
+        name = f"{_slug(label, 'table')}_table_{t['index']}"
+        modules.append({
+            "kind": "table",
+            "name": name,
+            "selectors": {"container": t.get("selector")},
+            "metadata": {
+                "headers": headers,
+                "column_count": t.get("column_count"),
+                "row_count": t.get("row_count"),
+                "detection": detection,
+            },
+            "candidate_tcs": _table_candidate_tcs(headers, detection),
+        })
+
+    standalone_fields = structure.get("standalone_fields") or []
+    if standalone_fields:
+        modules.append({
+            "kind": "form",
+            "name": "implicit_form_0",
+            "selectors": {
+                "container": None,
+                "fields": standalone_fields,
+                "submit": None,
+            },
+            "metadata": {
+                "implicit": True,
+                "field_count": len(standalone_fields),
+            },
+            "candidate_tcs": _implicit_form_candidate_tcs(standalone_fields),
         })
 
     return modules

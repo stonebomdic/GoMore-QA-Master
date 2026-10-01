@@ -64,7 +64,10 @@ run_tests(filter="<new_test_slug>")  # verify the generated test runs
   `timeout_ms=30000` to give it more time, or pass `auth_cookie`
   (cookie-session sites) / `auth_storage` (localStorage-token SPAs;
   values support `$ENV_NAME` indirection) if the content lives behind
-  login.
+  login. Data-table pages (admin back offices etc.) now produce
+  `table` modules instead of 0 — if a page still looks empty despite
+  visibly having a list/grid, it may be behind an SPA render delay
+  rather than a detection gap.
 - Modules look wrong (e.g. login form not detected as "form") → the
   module classifier missed it. Surface the raw output and let the
   user choose which module to feed to `generate_test`.

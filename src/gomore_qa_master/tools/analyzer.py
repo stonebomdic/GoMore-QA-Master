@@ -295,6 +295,29 @@ _DOM_PROBE_JS = r"""
     return i.getAttribute('aria-label') || i.getAttribute('placeholder') || i.getAttribute('name') || '';
   };
 
+  // Shared actual-visibility check — distinct from a `<dialog>`'s `open`
+  // attribute (a DOM/markup state) or any other "is this element the
+  // kind of thing we'd normally show" heuristic. A closed `<dialog>`'s
+  // children (its cancel/confirm buttons, its own empty `<form>`) and a
+  // `display:none` container's cta are exactly the real-world false
+  // positives this exists to flag: analyzer still records them as
+  // modules (the user needs to know they exist), but `visible: false`
+  // tells the renderer not to generate a click/fill/to_be_visible that
+  // would be guaranteed-red out of the box. Bounding-rect zero already
+  // catches "inside a display:none ancestor" (descendants collapse to
+  // 0x0 regardless of their own `display` value), but `visibility` is
+  // inherited and does NOT zero out layout, so the explicit computed-
+  // style check is still needed for that case.
+  const isVisible = (el) => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') return false;
+    if (parseFloat(cs.opacity) === 0) return false;
+    return true;
+  };
+
   const forms = [...document.querySelectorAll('form')].map((f, i) => {
     const fields = [...f.querySelectorAll('input, textarea, select')]
       .filter(el => el.type !== 'hidden')
@@ -311,6 +334,7 @@ _DOM_PROBE_JS = r"""
       method: (f.getAttribute('method') || 'get').toLowerCase(),
       fields,
       submit: sb ? { selector: sel(sb), text: txt(sb) } : null,
+      visible: isVisible(f),
     };
   });
 
@@ -325,7 +349,12 @@ _DOM_PROBE_JS = r"""
   const dialogs = [...document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"]')].map((d, i) => ({
     index: i, selector: sel(d),
     label: d.getAttribute('aria-label') || txt(d.querySelector('h1,h2,h3,[role="heading"]')) || '',
+    // `open` is DOM/markup state (a `<dialog>`'s `open` attribute, or
+    // `[role=dialog]`'s `hidden`); `visible` is the actual rendered
+    // visibility check — they diverge for e.g. a `[role=dialog]` whose
+    // `hidden` attribute is absent but which is `display:none` via CSS.
     open: d.tagName === 'DIALOG' ? d.hasAttribute('open') : !d.hidden,
+    visible: isVisible(d),
   }));
 
   const sections = [...document.querySelectorAll('section[aria-label], section[aria-labelledby], [role="region"][aria-label]')].map((s, i) => {
@@ -340,7 +369,7 @@ _DOM_PROBE_JS = r"""
   const ctaPatterns = ['登入','登出','註冊','結帳','送出','提交','下一步','繼續','購買','加入購物車','搜尋','查詢','確認','取消','訂閱','Sign in','Sign up','Login','Logout','Submit','Continue','Next','Checkout','Subscribe','Buy','Add to cart','Search'];
   const ctas = [...document.querySelectorAll('button, [role="button"], a.button, a.btn')]
     .filter(b => !b.closest('form'))
-    .map(b => ({ text: txt(b), selector: sel(b), tag: b.tagName.toLowerCase() }))
+    .map(b => ({ text: txt(b), selector: sel(b), tag: b.tagName.toLowerCase(), visible: isVisible(b) }))
     .filter(b => b.text && ctaPatterns.some(p => b.text.includes(p)))
     .slice(0, 20);
 
@@ -461,6 +490,7 @@ _DOM_PROBE_JS = r"""
       row_count: bodyRows.length,
       detection: 'native',
       selector_unique: hasStableSelector(el),
+      visible: isVisible(el),
     });
   });
 
@@ -486,6 +516,7 @@ _DOM_PROBE_JS = r"""
       row_count: rows.length,
       detection: 'aria',
       selector_unique: hasStableSelector(el),
+      visible: isVisible(el),
     });
   });
 
@@ -568,6 +599,7 @@ _DOM_PROBE_JS = r"""
       row_count: rc.rows.length,
       detection: 'repeated',
       selector_unique: true, // guaranteed by the hasStableSelector() guard above
+      visible: isVisible(rc.container),
     });
   });
 
@@ -590,13 +622,7 @@ _DOM_PROBE_JS = r"""
     .filter(el => !el.closest('form'))
     .filter(el => !el.closest('table, [role="grid"], [role="table"], [role="treegrid"]'))
     .filter(el => hasStableSelector(el))
-    .filter(el => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) return false;
-      const cs = getComputedStyle(el);
-      if (cs.visibility === 'hidden' || cs.display === 'none') return false;
-      return true;
-    })
+    .filter(el => isVisible(el))
     .map(el => ({
       label: labelFor(el),
       selector: sel(el),
@@ -618,10 +644,8 @@ _DOM_PROBE_JS = r"""
   // invisible elements + intentional scrollers (overflow: auto/scroll).
   const layout_warnings = [...document.querySelectorAll('body *')]
     .filter(el => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return false;
+      if (!isVisible(el)) return false;
       const cs = getComputedStyle(el);
-      if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0) return false;
       const dx = el.scrollWidth - el.clientWidth;
       const dy = el.scrollHeight - el.clientHeight;
       if (dx <= 2 && dy <= 10) return false;
@@ -736,6 +760,10 @@ def _build_modules(structure: dict) -> list[dict]:
         else:
             tcs.append("直接點擊送出，應有適當回應或無作用")
 
+        visible = form.get("visible")
+        if visible is False and tcs:
+            tcs[0] = f"（需先觸發顯示）{tcs[0]}"
+
         modules.append({
             "kind": "form",
             "name": name,
@@ -748,6 +776,7 @@ def _build_modules(structure: dict) -> list[dict]:
                 "method": form.get("method"),
                 "action": form.get("action"),
                 "field_count": len(fields),
+                "visible": visible,
             },
             "candidate_tcs": tcs,
         })
@@ -773,7 +802,7 @@ def _build_modules(structure: dict) -> list[dict]:
             "kind": "dialog",
             "name": _slug(label, f"dialog_{d['index']}"),
             "selectors": {"container": d.get("selector")},
-            "metadata": {"open_on_load": d.get("open")},
+            "metadata": {"open_on_load": d.get("open"), "visible": d.get("visible")},
             "candidate_tcs": [
                 "觸發 dialog 開啟後焦點應落入 dialog 內",
                 "按 ESC 或點擊遮罩應關閉 dialog（如設計允許）",
@@ -793,15 +822,19 @@ def _build_modules(structure: dict) -> list[dict]:
 
     for cta in structure.get("ctas") or []:
         text = cta.get("text") or ""
+        visible = cta.get("visible")
+        cta_tcs = [
+            f"點擊「{text}」應觸發對應動作（導頁／開 dialog／送 API）",
+            f"「{text}」在 loading 狀態下應禁用以避免重複觸發",
+        ]
+        if visible is False:
+            cta_tcs[0] = f"（需先觸發顯示）{cta_tcs[0]}"
         modules.append({
             "kind": "cta",
             "name": _slug(text, "cta"),
             "selectors": {"trigger": cta.get("selector")},
-            "metadata": {"label_text": text, "tag": cta.get("tag")},
-            "candidate_tcs": [
-                f"點擊「{text}」應觸發對應動作（導頁／開 dialog／送 API）",
-                f"「{text}」在 loading 狀態下應禁用以避免重複觸發",
-            ],
+            "metadata": {"label_text": text, "tag": cta.get("tag"), "visible": visible},
+            "candidate_tcs": cta_tcs,
         })
 
     for t in structure.get("tables") or []:
@@ -819,6 +852,7 @@ def _build_modules(structure: dict) -> list[dict]:
                 "row_count": t.get("row_count"),
                 "detection": detection,
                 "selector_unique": t.get("selector_unique", True),
+                "visible": t.get("visible"),
             },
             "candidate_tcs": _table_candidate_tcs(headers, detection),
         })

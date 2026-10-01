@@ -574,3 +574,106 @@ def test_dom_probe_end_to_end_through_build_modules():
     assert "form" in kinds
     implicit = next(m for m in modules if m.get("name") == "implicit_form_0")
     assert implicit["metadata"]["implicit"] is True
+
+
+# ---------------------------------------------------------------------------
+# isVisible() — real Chromium repro of the gwp-admin /users 4 紅 regression:
+# a closed logout-confirm `<dialog>`'s cancel/confirm buttons + its own empty
+# `<form>`, and a collapsed sidebar's logout cta, were all collected as
+# modules (correct — analyzer must still surface them) but rendered with
+# click/fill/to_be_visible (wrong — guaranteed red, since nothing in the
+# generated test ever opens the dialog / expands the sidebar).
+# ---------------------------------------------------------------------------
+
+CLOSED_DIALOG_HTML = """
+<html><body>
+  <dialog id="confirm-logout">
+    <p>Are you sure you want to log out?</p>
+    <button type="button">取消</button>
+    <button type="button" id="confirm-btn">確認登出</button>
+    <form id="logout-form" action="/logout" method="post"></form>
+  </dialog>
+</body></html>
+"""
+
+DISPLAY_NONE_CTA_HTML = """
+<html><body>
+  <div id="collapsed-sidebar" style="display:none">
+    <button type="button">登出</button>
+  </div>
+</body></html>
+"""
+
+NORMAL_VISIBLE_HTML = """
+<html><body>
+  <button type="button">登入</button>
+  <dialog id="welcome" open>
+    <p>Welcome</p>
+  </dialog>
+</body></html>
+"""
+
+HIDDEN_TABLE_HTML = """
+<html><body>
+  <div style="display:none">
+    <table id="t">
+      <thead><tr><th>A</th></tr></thead>
+      <tbody><tr><td>x</td></tr></tbody>
+    </table>
+  </div>
+</body></html>
+"""
+
+
+def test_closed_dialog_button_and_empty_form_are_marked_not_visible():
+    structure = _probe(CLOSED_DIALOG_HTML)
+    dialogs = structure["dialogs"]
+    assert len(dialogs) == 1
+    assert dialogs[0]["open"] is False
+    assert dialogs[0]["visible"] is False
+
+    ctas = structure["ctas"]
+    cta_texts = {c["text"]: c for c in ctas}
+    assert "取消" in cta_texts
+    assert "確認登出" in cta_texts
+    assert cta_texts["取消"]["visible"] is False
+    assert cta_texts["確認登出"]["visible"] is False
+
+    forms = structure["forms"]
+    assert len(forms) == 1
+    assert forms[0]["visible"] is False
+
+
+def test_display_none_container_cta_is_marked_not_visible():
+    structure = _probe(DISPLAY_NONE_CTA_HTML)
+    ctas = structure["ctas"]
+    assert len(ctas) == 1
+    assert ctas[0]["text"] == "登出"
+    assert ctas[0]["visible"] is False
+
+
+def test_normal_visible_elements_are_marked_visible():
+    structure = _probe(NORMAL_VISIBLE_HTML)
+    ctas = structure["ctas"]
+    assert len(ctas) == 1
+    assert ctas[0]["visible"] is True
+
+    dialogs = structure["dialogs"]
+    assert len(dialogs) == 1
+    assert dialogs[0]["open"] is True
+    assert dialogs[0]["visible"] is True
+
+
+def test_hidden_table_variant_is_marked_not_visible():
+    structure = _probe(HIDDEN_TABLE_HTML)
+    tables = structure["tables"]
+    assert len(tables) == 1
+    assert tables[0]["detection"] == "native"
+    assert tables[0]["visible"] is False
+
+
+def test_native_table_normally_visible_is_marked_visible():
+    structure = _probe(NATIVE_TABLE_HTML)
+    tables = structure["tables"]
+    assert len(tables) == 1
+    assert tables[0]["visible"] is True

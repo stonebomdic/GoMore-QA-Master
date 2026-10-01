@@ -56,6 +56,7 @@ def test_native_table_produces_table_module():
         "row_count": 50,
         "detection": "native",
         "selector_unique": True,
+        "visible": None,
     }
 
 
@@ -351,6 +352,123 @@ def test_structure_with_empty_lists_produces_no_table_or_implicit_form_modules()
     modules = _build_modules({"tables": [], "standalone_fields": [], "forms": []})
     assert _table_modules(modules) == []
     assert _form_modules(modules) == []
+
+
+# ---------------------------------------------------------------------------
+# metadata.visible 透傳 + visible=False 的 candidate_tcs 前綴
+# （gwp-admin /users 實測：關閉的登出確認 dialog 內按鈕／空 form、收合
+# 側欄的登出鈕都是「隱藏元素被收為模組」—— analyzer 仍要記錄它們存在，
+# 只是標旗標讓下游 renderer 知道不要產生會保證紅的斷言）。
+# ---------------------------------------------------------------------------
+
+
+def test_table_metadata_visible_true_is_propagated():
+    structure = {
+        "tables": [
+            {
+                "index": 0, "selector": "#t", "label": "T",
+                "headers": [], "column_count": 0, "row_count": 1,
+                "detection": "native", "visible": True,
+            }
+        ],
+    }
+    modules = _build_modules(structure)
+    assert _table_modules(modules)[0]["metadata"]["visible"] is True
+
+
+def test_table_metadata_visible_false_is_propagated():
+    structure = {
+        "tables": [
+            {
+                "index": 0, "selector": "#t", "label": "T",
+                "headers": [], "column_count": 0, "row_count": 1,
+                "detection": "native", "visible": False,
+            }
+        ],
+    }
+    modules = _build_modules(structure)
+    assert _table_modules(modules)[0]["metadata"]["visible"] is False
+
+
+def test_table_metadata_visible_defaults_none_when_js_omits_it():
+    structure = {
+        "tables": [
+            {
+                "index": 0, "selector": "#t", "label": "T",
+                "headers": [], "column_count": 0, "row_count": 1,
+                "detection": "native",
+            }
+        ],
+    }
+    modules = _build_modules(structure)
+    assert _table_modules(modules)[0]["metadata"]["visible"] is None
+
+
+def test_form_module_visible_false_prefixes_first_candidate_tc():
+    structure = {
+        "forms": [
+            {
+                "index": 0, "selector": "#logout-form", "action": "/logout",
+                "method": "post", "fields": [], "submit": None, "visible": False,
+            }
+        ],
+    }
+    modules = _build_modules(structure)
+    f = _form_modules(modules)[0]
+    assert f["metadata"]["visible"] is False
+    assert f["candidate_tcs"][0].startswith("（需先觸發顯示）")
+
+
+def test_form_module_visible_true_does_not_prefix_candidate_tc():
+    structure = {
+        "forms": [
+            {
+                "index": 0, "selector": "#f", "action": "/x",
+                "method": "post", "fields": [], "submit": None, "visible": True,
+            }
+        ],
+    }
+    modules = _build_modules(structure)
+    f = _form_modules(modules)[0]
+    assert not f["candidate_tcs"][0].startswith("（需先觸發顯示）")
+
+
+def test_cta_module_visible_false_prefixes_first_candidate_tc_and_propagates_metadata():
+    structure = {
+        "ctas": [
+            {"text": "確認登出", "selector": "button", "tag": "button", "visible": False},
+        ],
+    }
+    modules = _build_modules(structure)
+    cta = next(m for m in modules if m["kind"] == "cta")
+    assert cta["metadata"]["visible"] is False
+    assert cta["candidate_tcs"][0].startswith("（需先觸發顯示）")
+
+
+def test_cta_module_visible_true_does_not_prefix_candidate_tc():
+    structure = {
+        "ctas": [
+            {"text": "登入", "selector": "button", "tag": "button", "visible": True},
+        ],
+    }
+    modules = _build_modules(structure)
+    cta = next(m for m in modules if m["kind"] == "cta")
+    assert not cta["candidate_tcs"][0].startswith("（需先觸發顯示）")
+
+
+def test_dialog_module_visible_is_propagated_distinct_from_open():
+    """`open` is dialog-attribute state; `visible` is actual rendered
+    visibility — they can diverge (e.g. CSS display:none overriding a
+    present `[role=dialog]` without a `hidden` attribute)."""
+    structure = {
+        "dialogs": [
+            {"index": 0, "selector": "#d", "label": "確認登出", "open": False, "visible": False},
+        ],
+    }
+    modules = _build_modules(structure)
+    d = next(m for m in modules if m["kind"] == "dialog")
+    assert d["metadata"]["open_on_load"] is False
+    assert d["metadata"]["visible"] is False
 
 
 def test_multiple_tables_each_produce_own_module():

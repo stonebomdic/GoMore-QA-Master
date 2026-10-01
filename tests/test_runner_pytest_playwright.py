@@ -1064,8 +1064,9 @@ def test_generate_test_cta_module_button_tag_uses_get_by_role_text(runner, monke
 #    硬改走 get_by_role(name=innerText) 會找不到元素（accessible name 不
 #    一定等於 innerText，例如 aria-label 按鈕）——綠變紅。
 #
-# 修法：tag=="a" 用 get_by_role("link", ...)；tag=="button" 或 selector 命中
-# role="button" 用 get_by_role("button", ...)；真的判斷不出 tag 時才退回
+# 修法：tag=="a" 用 locator(sel).filter(has_text=...)（無 href 的 <a> 不是
+# accessibility link）；其餘已知 tag 用 get_by_role("button", ...)；真的判斷
+# 不出 tag 時才退回
 # page.locator(sel).filter(has_text=label)（Python 字串參數，完全不碰 CSS
 # 字串跳脫）。以上三者都只在 selector 非唯一（bare tag 或
 # metadata.selector_unique=False）時才啟用；selector 本身穩定時一律保留
@@ -1123,8 +1124,10 @@ def test_render_cta_div_role_button_uses_get_by_role_not_has_text(runner, monkey
     assert "has-text" not in content
 
 
-def test_render_cta_anchor_tag_uses_get_by_role_link(runner, monkeypatch, tmp_path):
-    """tag=="a" 改用 get_by_role("link", ...)，不再是 CSS :has-text(...)。"""
+def test_render_cta_anchor_tag_uses_filter_has_text(runner, monkeypatch, tmp_path):
+    """tag=="a" 用 locator(sel).filter(has_text=...)：沒有 href 的
+    <a class=btn>（舊式 onclick 按鈕）在無障礙樹裡不是 link，
+    get_by_role("link") 會 0 匹配；<a> 不會巢狀，filter 不會誤選祖先。"""
     monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
     module = {
         "kind": "cta",
@@ -1134,12 +1137,11 @@ def test_render_cta_anchor_tag_uses_get_by_role_link(runner, monkeypatch, tmp_pa
     }
     runner.generate_test("desc", "test_cta_buy.py", url="https://x.test", module=module)
     content = (tmp_path / "test_cta_buy.py").read_text()
-    tree = ast.parse(content)
-    call = _get_by_role_call(tree)
-    assert call.args[0].value == "link"
-    name_kw = next(kw for kw in call.keywords if kw.arg == "name")
-    assert name_kw.value.value == "立即購買"
-    assert "has-text" not in content
+    ast.parse(content)
+    assert 'get_by_role("link"' not in content
+    assert ".filter(has_text='立即購買')" in content
+    assert "page.locator('a')" in content
+    assert ":has-text" not in content
 
 
 def test_render_cta_label_text_with_embedded_quotes_round_trips_via_python_repr(runner, monkeypatch, tmp_path):
@@ -1150,8 +1152,8 @@ def test_render_cta_label_text_with_embedded_quotes_round_trips_via_python_repr(
     module = {
         "kind": "cta",
         "name": "cta_quote",
-        "selectors": {"trigger": "a"},
-        "metadata": {"label_text": '說"你好"', "tag": "a"},
+        "selectors": {"trigger": "button"},
+        "metadata": {"label_text": '說"你好"', "tag": "button"},
     }
     runner.generate_test("desc", "test_cta_quote.py", url="https://x.test", module=module)
     content = (tmp_path / "test_cta_quote.py").read_text()

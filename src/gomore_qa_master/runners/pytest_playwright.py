@@ -866,7 +866,8 @@ class PytestPlaywrightRunner(TestRunner):
         in that case.
 
         - `metadata.label_text` present + selector non-unique:
-            - `tag == "a"` → `get_by_role("link", name=...)`.
+            - `tag == "a"` → `locator(sel).filter(has_text=...)`（沒有 href
+              的 <a> 不是 accessibility link，get_by_role 會 0 匹配）。
             - `tag` is any other non-empty string (`"button"`, or a
               `[role="button"]` `<div>`/`<span>`/... — analyze_url's cta
               query only ever matches `button`, `[role="button"]`,
@@ -898,7 +899,10 @@ class PytestPlaywrightRunner(TestRunner):
         if has_label and _selector_is_non_unique(trigger_sel, metadata):
             tag = metadata.get("tag")
             if tag == "a":
-                target_expr = f'page.get_by_role("link", name={label_text!r}).first'
+                # 不用 get_by_role("link")：沒有 href 的 <a class=btn>（舊式
+                # onclick 按鈕）在無障礙樹裡不是 link，會 0 匹配。<a> 不會
+                # 巢狀，filter(has_text=) 不會誤選祖先。
+                target_expr = f"page.locator({trigger_sel!r}).filter(has_text={label_text!r}).first"
             elif isinstance(tag, str) and tag:
                 target_expr = f'page.get_by_role("button", name={label_text!r}).first'
             else:

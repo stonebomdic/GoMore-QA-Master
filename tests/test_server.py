@@ -414,6 +414,42 @@ def test_build_auth_conftest_userinfo_url_does_not_leak_credentials_into_origin(
     assert not warnings
 
 
+def test_build_auth_conftest_default_port_omitted_from_origin():
+    """URL 明寫預設 port（https:443 / http:80）時 origin 要省略它——
+    瀏覽器正規化後的 origin 字串不含預設 port，寫進去 localStorage
+    會對不上 origin。非預設 port 照舊保留。"""
+    content, _ = server._build_auth_conftest(
+        "https://x.example.com:443/users", {"token": "$QA_WEB_TOKEN"}, None,
+    )
+    assert "origin = 'https://x.example.com'" in content
+
+    content, _ = server._build_auth_conftest(
+        "http://x.example.com:80/users", {"token": "$QA_WEB_TOKEN"}, None,
+    )
+    assert "origin = 'http://x.example.com'" in content
+
+    content, _ = server._build_auth_conftest(
+        "https://x.example.com:9443/users", {"token": "$QA_WEB_TOKEN"}, None,
+    )
+    assert "origin = 'https://x.example.com:9443'" in content
+
+
+def test_build_auth_conftest_case_sensitive_env_refs_get_distinct_variables():
+    """$FOO 與 $foo 是兩個不同的環境變數：各自要有獨立的 Python 區域變數
+    與缺值檢查，不能因 lower() 共用變數名而互相覆蓋。"""
+    content, _ = server._build_auth_conftest(
+        "https://x.example.com/users",
+        {"k1": "$FOO", "k2": "$foo"},
+        None,
+    )
+    ast.parse(content)
+    assert 'os.environ.get("FOO")' in content
+    assert 'os.environ.get("foo")' in content
+    import re as _re
+    var_names = set(_re.findall(r"(_auth_env_\d+) = os\.environ\.get", content))
+    assert len(var_names) == 2
+
+
 def test_build_auth_conftest_hostname_none_returns_no_content_with_warning():
     content, warnings = server._build_auth_conftest(
         "not-a-real-url-with-no-host", {"token": "$QA_WEB_TOKEN"}, None,

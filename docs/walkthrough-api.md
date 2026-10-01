@@ -677,7 +677,10 @@ run_api_security_scan(
   spec_url="examples/sample_vulnerable_api/openapi.yaml",
   base_url="http://127.0.0.1:5099",
   auth={"token": "<user-a>", "alt_user_token": "<user-b>",
-        "bola_test_ids": {"user_a": [1, 3], "user_b": [2]}},
+        "bola_test_ids": {"user_a": [1, 3], "user_b": [2]},
+        # optional — glob patterns for paths known to be intentionally
+        # shared; matches downgrade to INFO `-DeclaredShared`
+        "bola_shared_endpoints": []},
   severity_threshold="low",
   plan_id="<from step 1>",
 )

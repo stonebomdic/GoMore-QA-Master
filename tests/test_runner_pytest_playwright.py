@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import ast
 import json
 import sys
 import zipfile
@@ -517,6 +518,284 @@ def test_generate_test_generic_module_renders_container(runner, monkeypatch, tmp
     runner.generate_test("desc", "test_cart.py", module=module)
     content = (tmp_path / "test_cart.py").read_text()
     assert "#cart" in content
+
+
+# ---- _render_form_test — P3 生成品質修復 ------------------------------------
+# POC 附錄 F-1 實測缺陷：(1) 送出按鈕誤被當欄位 fill() 而炸掉、
+# (2) empty-submit 描述卻仍先填值（描述與 body 矛盾）、(3) 只有 TODO 無真斷言。
+#
+# Review round 2 追加：
+# major#1 負向 TC 不該掛成功斷言 / major#2 單一欄位留空不該被當全空 /
+# major#3（見 test_server.py 的 _select_candidate_tcs）/ minor#6~9。
+
+_POSITIVE_DESC = "全部填入合法值後送出，應觸發成功流程（導頁或顯示成功訊息）"
+
+
+def test_generate_test_form_filters_button_type_fields(runner, monkeypatch, tmp_path):
+    """analyzer 可能把 submit/button 誤放進 fields —— 模板端要防禦性過濾，
+    不然會對送出按鈕呼叫 .fill() 直接炸掉（F-1 缺陷 1）。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [
+                {"selector": "#email", "type": "email"},
+                {"selector": "#go", "type": "SUBMIT"},  # 大小寫不敏感
+                {"selector": "#reset-btn", "type": "reset"},
+                {"selector": "#hidden-token", "type": "hidden"},
+                {"selector": "#submit", "type": "text"},  # 與 submit 選擇器同一個
+            ],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test("使用者登入", "test_login.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_login.py").read_text()
+    ast.parse(content)  # review round 2 minor#9：擋壞語法回歸
+    assert "page.locator('#email').fill(" in content
+    assert "'#go'" not in content
+    assert "'#reset-btn'" not in content
+    assert "'#hidden-token'" not in content
+    # 唯一允許出現 #submit 的地方是 submit click，不應該再對它呼叫 .fill()
+    assert "page.locator('#submit').fill(" not in content
+    assert "page.locator('#submit').click()" in content
+
+
+def test_generate_test_form_empty_submit_variant_chinese_keyword(runner, monkeypatch, tmp_path):
+    """描述含「留空」等關鍵字 → 改渲染 empty-submit 變體：不 fill、直接 click，
+    且 module docstring 要標出 variant，避免描述與 body 矛盾（F-1 缺陷 2）。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test("欄位留空時送出", "test_login_empty.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_login_empty.py").read_text()
+    ast.parse(content)
+    assert "page.locator('#email').fill(" not in content
+    assert "page.locator('#submit').click()" in content
+    assert "variant=empty-submit" in content
+    assert "斷言錯誤提示" in content
+
+
+def test_generate_test_form_empty_submit_variant_english_keyword(runner, monkeypatch, tmp_path):
+    """英文關鍵字（大小寫不敏感）一樣要觸發 empty-submit 變體。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test(
+        "Submit WITHOUT FILLING required fields", "test_login_blank.py",
+        url="https://x.test", module=module,
+    )
+    content = (tmp_path / "test_login_blank.py").read_text()
+    ast.parse(content)
+    assert "page.locator('#email').fill(" not in content
+    assert "page.locator('#submit').click()" in content
+    assert "variant=empty-submit" in content
+
+
+def test_generate_test_form_single_field_empty_skips_only_that_field(runner, monkeypatch, tmp_path):
+    """analyzer 的「只填其他欄位、{label} 留空」TC 只該跳過該欄位的 fill，
+    其餘欄位仍要正常填值（review round 2 major#2 —— 之前被通用關鍵字誤判成
+    全部留空）。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [
+                {"selector": "#email", "type": "email", "label": "Email"},
+                {"selector": "#password", "type": "password", "label": "Password"},
+            ],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test(
+        "只填其他欄位、Password 留空，應顯示該欄位必填錯誤",
+        "test_login_single_empty.py", url="https://x.test", module=module,
+    )
+    content = (tmp_path / "test_login_single_empty.py").read_text()
+    ast.parse(content)
+    assert "variant=single-field-empty" in content
+    # Email 仍要 fill，只有 Password 被跳過
+    assert "page.locator('#email').fill(" in content
+    assert "page.locator('#password').fill(" not in content
+    assert "page.locator('#submit').click()" in content
+    assert "斷言錯誤提示" in content
+
+
+def test_generate_test_form_single_field_empty_unknown_label_falls_back_to_full_empty(
+    runner, monkeypatch, tmp_path,
+):
+    """TC 提到的 label 對不到任何已知欄位時，fallback 為全部留空，且要在
+    產出裡註明是 fallback（review round 2 major#2）。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email", "label": "Email"}],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test(
+        "只填其他欄位、Nickname 留空，應顯示該欄位必填錯誤",
+        "test_login_unknown_label.py", url="https://x.test", module=module,
+    )
+    content = (tmp_path / "test_login_unknown_label.py").read_text()
+    ast.parse(content)
+    assert "variant=empty-submit" in content
+    assert "page.locator('#email').fill(" not in content
+    assert "Nickname" in content
+    assert "fallback" in content
+
+
+def test_generate_test_form_happy_path_renders_api_response_assertion(runner, monkeypatch, tmp_path):
+    """明確正向描述 + module['api'] 存在時，happy-path 變體要產出真實斷言：
+    等待對應 API response、檢查 method 與狀態碼，而不是留一個空 TODO
+    （F-1 缺陷 3；review round 2 minor#6 補上 method 比對）。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+        "api": {"method": "POST", "url_substring": "/api/login"},
+    }
+    runner.generate_test(_POSITIVE_DESC, "test_login_api.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_login_api.py").read_text()
+    ast.parse(content)
+    assert "r.request.method == 'POST' and \"/api/login\" in r.url" in content
+    assert "assert _resp.value.status < 400" in content
+    assert "page.locator('#submit').click()" in content
+    assert "TODO: 補上實際斷言" not in content
+
+
+def test_generate_test_form_happy_path_fallback_todo_without_api(runner, monkeypatch, tmp_path):
+    """沒有 module['api'] 時，維持現行 TODO fallback，不硬湊斷言。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+    }
+    runner.generate_test(_POSITIVE_DESC, "test_login_noapi.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_login_noapi.py").read_text()
+    ast.parse(content)
+    assert "TODO: 補上實際斷言" in content
+    assert "page.expect_response" not in content
+
+
+def test_generate_test_form_negative_description_does_not_get_success_assertion(
+    runner, monkeypatch, tmp_path,
+):
+    """review round 2 major#1：負向 TC（如「Email 格式錯誤應顯示錯誤」）就算
+    帶 module['api']，也不該被掛上「status < 400」這種成功斷言 —— 斷言方向
+    與描述相反，寧缺勿錯，維持 TODO fallback。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+        "api": {"method": "POST", "url_substring": "/api/login"},
+    }
+    runner.generate_test(
+        "Email 欄位填入格式錯誤的字串（無 @），應顯示格式錯誤",
+        "test_login_negative.py", url="https://x.test", module=module,
+    )
+    content = (tmp_path / "test_login_negative.py").read_text()
+    ast.parse(content)
+    assert "page.expect_response" not in content
+    assert "assert _resp.value.status" not in content
+    assert "TODO: 補上實際斷言" in content
+
+
+def test_generate_test_form_api_path_slash_is_too_generic_for_assertion(runner, monkeypatch, tmp_path):
+    """review round 2 minor#6：url_substring 為 "/" 時幾乎恆真，不產斷言，
+    fallback 回 TODO。"""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+        "api": {"method": "POST", "url_substring": "/"},
+    }
+    runner.generate_test(_POSITIVE_DESC, "test_login_slash.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_login_slash.py").read_text()
+    ast.parse(content)
+    assert "page.expect_response" not in content
+    assert "TODO: 補上實際斷言" in content
+
+
+# ---- _is_empty_submit_description / _is_positive_description ---------------
+# review round 2 minor#7：關鍵字改詞組，單字「空」「blank」移除避免誤判；
+# 兩個分類器各建一份正負向表，含已知誤判案例。
+
+
+@pytest.mark.parametrize("description", [
+    "所有必填欄位為空時送出，應顯示必填錯誤",
+    "欄位留空時送出",
+    "Email 未填時應顯示錯誤",
+    "空白送出應顯示必填提示",
+    "Submit empty submit form",
+    "Submit WITHOUT FILLING required fields",
+    "Please leave blank and submit",
+])
+def test_is_empty_submit_description_true_cases(description):
+    assert pw._is_empty_submit_description(description) is True
+
+
+@pytest.mark.parametrize("description", [
+    "清空購物車",
+    "Blank page check",
+    "空白字元處理應被 trim",
+    "全部填入合法值後送出，應觸發成功流程",
+    "使用者登入",
+    None,
+])
+def test_is_empty_submit_description_false_cases(description):
+    assert pw._is_empty_submit_description(description) is False
+
+
+@pytest.mark.parametrize("description", [
+    "全部填入合法值後送出，應觸發成功流程（導頁或顯示成功訊息）",
+    "全部填寫正確後應顯示成功訊息",
+    "happy path: valid login redirects to dashboard",
+])
+def test_is_positive_description_true_cases(description):
+    assert pw._is_positive_description(description) is True
+
+
+@pytest.mark.parametrize("description", [
+    "Email 欄位填入格式錯誤的字串（無 @），應顯示格式錯誤",
+    "Password 太短或不符合複雜度規則時應顯示錯誤",
+    "使用者登入",
+    "全部填入合法值後送出，但格式錯誤時應顯示錯誤",  # 正負向關鍵字都命中，負向優先
+    None,
+])
+def test_is_positive_description_false_cases(description):
+    assert pw._is_positive_description(description) is False
 
 
 def test_business_context_block_empty_when_blank(runner):

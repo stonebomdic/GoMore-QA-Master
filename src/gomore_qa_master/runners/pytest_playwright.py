@@ -96,6 +96,14 @@ _SAMPLE_VALUES = {
 # regardless of analyzer correctness (POC F-1 defect #1).
 _NON_FILLABLE_FIELD_TYPES = frozenset({"button", "submit", "reset", "hidden", "image"})
 
+# Field `type`s Playwright's `.fill()` actually accepts (text-like inputs +
+# textarea). Deliberately excludes "select"/"checkbox"/"radio" — those throw
+# ("Input of type checkbox cannot be filled") and need `select_option()` /
+# `check()` instead (`_render_implicit_form_test`, review N3).
+_FILLABLE_TEXTLIKE_TYPES = frozenset({
+    "text", "search", "email", "number", "tel", "url", "date", "password", "textarea",
+})
+
 # Multi-character phrases (bilingual) that mark a description as the
 # "submit while all required fields are empty" scenario. Deliberately whole
 # phrases, not bare "空"/"blank" — those single tokens false-positive on
@@ -478,7 +486,18 @@ class PytestPlaywrightRunner(TestRunner):
         # If caller hands us a module from analyze_url, render a runnable
         # skeleton with concrete selectors instead of a `# TODO` stub.
         if isinstance(module, dict) and module.get("kind") == "form":
-            content = self._render_form_test(description, slug, url, module, business_context)
+            md = module.get("metadata")
+            if isinstance(md, dict) and md.get("implicit"):
+                # `analyzer._build_modules`'s implicit_form_0: fields that
+                # live outside any <form> (search/filter bars). There's no
+                # submit button and no real validation semantics — fill
+                # one field, press Enter. Reusing `_render_form_test`
+                # would fill every field and look for a submit button
+                # that doesn't exist (review: "implicit form 的 render
+                # 語意對不上").
+                content = self._render_implicit_form_test(description, slug, url, module, business_context)
+            else:
+                content = self._render_form_test(description, slug, url, module, business_context)
         elif isinstance(module, dict):
             content = self._render_generic_module_test(description, slug, url, module, business_context)
         else:
@@ -660,6 +679,79 @@ class PytestPlaywrightRunner(TestRunner):
             f"{submit_body}\n"
             + (f"{tc_block}\n" if tc_block else "")
             + assertion_block
+            + _OVERFLOW_HINT
+        )
+
+    def _render_implicit_form_test(self, description: str, slug: str, url: str | None, module: dict, business_context: str | None = None) -> str:
+        """Renders `analyzer._build_modules`'s `implicit_form_0` module —
+        fields that live outside any `<form>` (bare search/filter inputs
+        next to a data table). There's no submit button and the fields
+        were never validated as a single unit, so this intentionally
+        does NOT reuse `_render_form_test`'s fill-every-field +
+        click-submit flow: it fills one field (preferring a text/search
+        type — that's what a filter bar actually is, falling back to any
+        other text-like `.fill()`-safe type) and presses Enter, which is
+        how an implicit "submission" actually happens here.
+
+        Review-flagged crash (N3): a naive "fall back to fields[0]" would
+        hand a checkbox/select field to `.fill()`, which Playwright
+        rejects outright ("Input of type checkbox cannot be filled").
+        When there's no fillable text-like field at all, we instead
+        render the one interaction that *is* valid for that field type
+        (`select_option` / `check()`) and skip the Enter press — pressing
+        Enter after toggling a checkbox or picking a dropdown option
+        isn't "submitting a search", it's a different (and unverified)
+        action.
+        """
+        sel = module.get("selectors") or {}
+        raw_fields = sel.get("fields") or []
+        fields = [
+            f for f in raw_fields
+            if f.get("selector") and (f.get("type") or "").lower() not in _NON_FILLABLE_FIELD_TYPES
+        ]
+
+        def _kind(f: dict) -> str:
+            return (f.get("type") or "").lower()
+
+        target = next((f for f in fields if _kind(f) in ("text", "search")), None)
+        if target is None:
+            target = next((f for f in fields if _kind(f) in _FILLABLE_TEXTLIKE_TYPES), None)
+
+        is_clear_variant = "清空" in (description or "")
+        if target is not None:
+            target_selector = target["selector"]
+            value = "" if is_clear_variant else _SAMPLE_VALUES.get(_kind(target), "test value")
+            action_body = (
+                f"    page.locator({target_selector!r}).fill({value!r})\n"
+                f"    page.locator({target_selector!r}).press(\"Enter\")"
+            )
+        else:
+            select_field = next((f for f in fields if _kind(f) == "select"), None)
+            checkbox_field = next((f for f in fields if _kind(f) in ("checkbox", "radio")), None)
+            if select_field is not None:
+                action_body = f"    page.locator({select_field['selector']!r}).select_option(index=1)"
+            elif checkbox_field is not None:
+                action_body = f"    page.locator({checkbox_field['selector']!r}).check()"
+            else:
+                action_body = "    # No fillable fields detected"
+
+        tcs = module.get("candidate_tcs") or []
+        tc_block = "\n".join(f"    # TC: {tc}" for tc in tcs[:3])
+        goto_url = url or "https://example.com"
+        bc = self._business_context_block(business_context)
+        module_label = _sanitize_docstring_text(str(module.get("name", "(unnamed)")))
+        return (
+            f'"""Auto-generated from analyze_url module: {module_label} '
+            '(kind=form, implicit=True)"""\n'
+            "from playwright.sync_api import Page, expect\n\n\n"
+            f"def test_{slug}(page: Page):\n"
+            f"    {description!r}\n"
+            f"{bc}"
+            f"    page.goto({goto_url!r})\n"
+            f"{action_body}\n"
+            + (f"{tc_block}\n" if tc_block else "")
+            + "    # TODO: 補上實際斷言，例如：\n"
+              "    # expect(page.locator(...)).to_have_count(...)\n"
             + _OVERFLOW_HINT
         )
 

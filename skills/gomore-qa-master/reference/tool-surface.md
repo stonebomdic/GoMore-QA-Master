@@ -32,7 +32,7 @@ Use them as bookends around Flows 1-5. Skip for one-shot reads.
 
 | Tool | Purpose | Gotchas |
 |---|---|---|
-| `analyze_url` | Discover modules + candidate TCs from a web URL | SPA-heavy sites need `timeout_ms=30000+`; behind-login needs `auth_cookie`, or `auth_storage` for localStorage-token SPAs (values support `$ENV_NAME` indirection so tokens stay out of logs) |
+| `analyze_url` | Discover modules + candidate TCs from a web URL | SPA-heavy sites need `timeout_ms=30000+`; behind-login needs `auth_cookie`, or `auth_storage` for localStorage-token SPAs (values support `$ENV_NAME` indirection so tokens stay out of logs). **v0.9.9**: data-table admin pages (e.g. Tailwind back offices) now surface `kind: "table"` modules via three-tier detection — native `<table>` > ARIA `role=grid/table/treegrid` > a heuristic "≥4 repeated sibling elements" fallback (`metadata.detection`) — plus a `kind: "form"` `implicit_form_0` module aggregating inputs that sit outside any `<form>` (e.g. a bare search box next to a table) |
 | `analyze_screen` | Same but for mobile (Maestro hierarchy) | Requires Maestro CLI + a booted device |
 | `generate_test` | Generate ONE pytest test from a description + module | `filename` should be a slug, no `.py` |
 | `auto_generate_tests` | Chain `analyze_url` → `generate_test` × N | `tests_per_module` defaults to 1 — anything above 3 produces noise |

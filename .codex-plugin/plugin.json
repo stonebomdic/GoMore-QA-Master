@@ -1,6 +1,6 @@
 {
   "name": "gomore-qa-master",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "AI 測試大師 — QA testing agent skill. Drives gomore-qa-master's 19-tool MCP surface (pytest / Jest / Cypress / Maestro / Schemathesis / Newman) plus the OWASP API Security scanner. Auto-activates from prompts like 'run my tests', 'why did this test fail', 'generate tests for this URL', 'scan this API for OWASP issues'.",
   "author": {
     "name": "Jack Kao",

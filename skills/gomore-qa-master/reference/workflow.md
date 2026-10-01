@@ -64,7 +64,24 @@ run_tests(filter="<new_test_slug>")  # verify the generated test runs
   `timeout_ms=30000` to give it more time, or pass `auth_cookie`
   (cookie-session sites) / `auth_storage` (localStorage-token SPAs;
   values support `$ENV_NAME` indirection) if the content lives behind
-  login.
+  login. Data-table pages (admin back offices etc.) now produce
+  `table` modules instead of 0 — if a page still looks empty despite
+  visibly having a list/grid, it may be behind an SPA render delay
+  rather than a detection gap. The `detection: "repeated"` tier
+  (no native `<table>` / ARIA grid found) is a heuristic guess at
+  div-based row structures, with known trade-offs:
+  - It only emits a module when the container has a stable selector
+    (id/data-testid/name/aria-label) — unlike native/aria detections
+    (which are always emitted, just flagged `selector_unique: false`
+    when their own selector is unstable), a *repeated* block with no
+    stable selector is dropped outright rather than risk a non-unique
+    Playwright locator on top of an already-low-confidence guess.
+  - A list where the entire row is a link (`<a class="row">...</a>`
+    repeated N times) is never detected — `<a>` is treated as a leaf
+    element (looks like a CTA, not a data row).
+  - Very rarely, a container whose rows themselves look like repeated
+    rows (more cells per row than there are rows) can get matched at
+    the wrong nesting level instead of the outer list.
 - Modules look wrong (e.g. login form not detected as "form") → the
   module classifier missed it. Surface the raw output and let the
   user choose which module to feed to `generate_test`.

@@ -512,6 +512,137 @@ def test_generate_test_form_module_fills_fields(runner, monkeypatch, tmp_path):
     assert "#submit" in content
 
 
+def test_generate_test_implicit_form_module_fills_one_field_and_presses_enter(runner, monkeypatch, tmp_path):
+    """`analyzer._build_modules`'s implicit_form_0（metadata.implicit=True）
+    must NOT go through `_render_form_test`'s fill-every-field +
+    click-submit flow — there's no enclosing <form>/submit button. It
+    should fill the first text/search field and press Enter instead."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [
+                {"label": "關鍵字", "selector": "#q", "type": "text", "required": False},
+                {"label": "狀態", "selector": "#status", "type": "select", "required": False},
+            ],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 2},
+        "candidate_tcs": ["輸入關鍵字後按 Enter 應觸發查詢／過濾"],
+    }
+    runner.generate_test("desc", "test_search.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_search.py").read_text()
+    ast.parse(content)
+    assert 'page.locator(\'#q\').press("Enter")' in content
+    # Must only fill the ONE target field, not every field in the module —
+    # the select (#status) must never be touched (no .select_option call).
+    assert "#status" not in content
+    assert ".select_option" not in content
+    assert content.count(".fill(") == 1
+
+
+def test_generate_test_implicit_form_clear_description_fills_empty_string(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [{"label": "關鍵字", "selector": "#q", "type": "text", "required": False}],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 1},
+        "candidate_tcs": ["清空輸入應還原列表"],
+    }
+    runner.generate_test("清空輸入應還原列表", "test_clear.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_clear.py").read_text()
+    ast.parse(content)
+    assert "page.locator('#q').fill('')" in content
+    assert 'page.locator(\'#q\').press("Enter")' in content
+
+
+def test_generate_test_implicit_form_all_checkbox_fields_checks_instead_of_fill(runner, monkeypatch, tmp_path):
+    """Review N3: naively falling back to `fields[0]` and calling `.fill()`
+    on it crashes for real — Playwright rejects `.fill()` on a checkbox
+    ("Input of type checkbox cannot be filled"). With no text/search-like
+    field at all, a checkbox-only implicit form must render `.check()`
+    and must NOT press Enter afterward (that's not "submitting a
+    search", it's a different, unverified action)."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [
+                {"label": "啟用", "selector": "#active", "type": "checkbox", "required": False},
+                {"label": "已驗證", "selector": "#verified", "type": "checkbox", "required": False},
+            ],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 2},
+        "candidate_tcs": ["TC"],
+    }
+    runner.generate_test("desc", "test_checkbox.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_checkbox.py").read_text()
+    ast.parse(content)
+    assert "page.locator('#active').check()" in content
+    assert ".fill(" not in content
+    assert "press(" not in content
+
+
+def test_generate_test_implicit_form_all_select_fields_uses_select_option(runner, monkeypatch, tmp_path):
+    """Same crash class as the checkbox case: `.fill()` on a `<select>`
+    also isn't valid Playwright — a select-only implicit form must use
+    `select_option(index=1)` and must not press Enter afterward."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [
+                {"label": "狀態", "selector": "#status", "type": "select", "required": False},
+            ],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 1},
+        "candidate_tcs": ["TC"],
+    }
+    runner.generate_test("desc", "test_select_only.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_select_only.py").read_text()
+    ast.parse(content)
+    assert "page.locator('#status').select_option(index=1)" in content
+    assert ".fill(" not in content
+    assert "press(" not in content
+
+
+def test_generate_test_form_module_with_non_dict_metadata_does_not_crash(runner, monkeypatch, tmp_path):
+    """Review S1: `(module.get("metadata") or {}).get("implicit")` throws
+    AttributeError the moment a caller hands a non-dict `metadata` (e.g. a
+    list) — `.get()` doesn't exist on a list. Must fall back to the
+    regular (non-implicit) form renderer instead of crashing."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "Login form",
+        "selectors": {
+            "fields": [{"selector": "#email", "type": "email"}],
+            "submit": "#submit",
+        },
+        "metadata": ["not", "a", "dict"],
+        "candidate_tcs": ["TC1"],
+    }
+    runner.generate_test("desc", "test_weird_metadata.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_weird_metadata.py").read_text()
+    ast.parse(content)
+    # Took the regular form path: fills the field and clicks the submit.
+    assert "#email" in content
+    assert "#submit" in content
+
+
 def test_generate_test_generic_module_renders_container(runner, monkeypatch, tmp_path):
     monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
     module = {"kind": "widget", "name": "Cart", "selectors": {"container": "#cart"}}

@@ -65,6 +65,29 @@ def test_pick_form_api_skips_analytics_paths():
     assert result == {"method": "POST", "url_substring": "/api/login"}
 
 
+def test_pick_form_api_non_dict_metadata_does_not_crash():
+    """Review S1: `(module.get("metadata") or {}).get("implicit")` throws
+    AttributeError when `metadata` is a non-dict truthy value (e.g. a
+    list) — `or {}` only substitutes on falsy values, so a non-empty list
+    sails through to `.get()`, which lists don't have. Must treat it as
+    "not implicit" and fall through to the normal matching logic instead
+    of crashing."""
+    module = {"kind": "form", "metadata": ["not", "a", "dict"]}
+    endpoints = [{"method": "POST", "host": "x.test", "path": "/api/login"}]
+    result = server._pick_form_api("https://x.test/login", module, endpoints)
+    assert result == {"method": "POST", "url_substring": "/api/login"}
+
+
+def test_pick_form_api_returns_none_for_implicit_form():
+    """analyzer._build_modules 的 implicit_form_0（不在任何 <form> 內的
+    欄位聚合）沒有真正的送出按鈕／提交動作可以掛 API 斷言 —— 即使同源同
+    method 的 POST 端點存在，也不該被誤配對（否則 codegen 會產生一個斷言
+    「點某個不存在的 submit 按鈕後應觸發這支 API」的假陽性測試）。"""
+    module = {"kind": "form", "metadata": {"implicit": True, "field_count": 1}}
+    endpoints = [{"method": "POST", "host": "x.test", "path": "/api/search"}]
+    assert server._pick_form_api("https://x.test/list", module, endpoints) is None
+
+
 # ---- _select_candidate_tcs — 純函式 -----------------------------------------
 
 

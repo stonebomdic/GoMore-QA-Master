@@ -256,15 +256,31 @@ def _api_candidate_tcs(endpoint: dict) -> list[str]:
 _DOM_PROBE_JS = r"""
 () => {
   const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : (s || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  // Escapes a value going INSIDE a `[attr="..."]` selector's double quotes
+  // (as opposed to `esc()` above, which escapes an #id/.class identifier).
+  // A placeholder/aria-label can legitimately contain a `"` or `\` —
+  // without this, that breaks out of the attribute selector's string and
+  // produces a selector that either throws or silently matches the wrong
+  // thing.
+  const escAttr = (s) => (s || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const sel = (el) => {
     if (!el) return null;
     if (el.id) return '#' + esc(el.id);
     const t = el.getAttribute('data-testid');
-    if (t) return `[data-testid="${t}"]`;
+    if (t) return `[data-testid="${escAttr(t)}"]`;
     const n = el.getAttribute('name');
-    if (n && el.tagName === 'INPUT') return `${el.tagName.toLowerCase()}[name="${n}"]`;
+    if (n && ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName)) return `${el.tagName.toLowerCase()}[name="${escAttr(n)}"]`;
     const a = el.getAttribute('aria-label');
-    if (a) return `${el.tagName.toLowerCase()}[aria-label="${a}"]`;
+    if (a) return `${el.tagName.toLowerCase()}[aria-label="${escAttr(a)}"]`;
+    // Last resort before the bare tag name: a gwp-admin-style search box
+    // is frequently just `<input placeholder="搜尋...">` with none of the
+    // above — without this, every such field fails `hasStableSelector()`
+    // and gets dropped from `standalone_fields` entirely (the exact field
+    // this whole feature was built to catch).
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      const ph = el.getAttribute('placeholder');
+      if (ph) return `${el.tagName.toLowerCase()}[placeholder="${escAttr(ph)}"]`;
+    }
     return el.tagName.toLowerCase();
   };
   const txt = (el) => (el && (el.innerText || el.textContent) || '').trim().slice(0, 80);
@@ -328,6 +344,272 @@ _DOM_PROBE_JS = r"""
     .filter(b => b.text && ctaPatterns.some(p => b.text.includes(p)))
     .slice(0, 20);
 
+  // Tables: three-tier detection (native <table> > ARIA grid > repeated
+  // fallback), de-duped so the same element is never classified twice —
+  // native/aria elements are tracked in `seenTableEls` before the next
+  // tier runs, so a lower-priority tier simply skips anything already
+  // claimed. gwp-admin-style Tailwind back
+  // offices render data tables as plain <table> (the common case) but
+  // some ship ARIA grids, and some ship neither — just N repeated
+  // sibling rows (divs) — hence the fallback tier.
+  const seenTableEls = new Set();
+  const tables = [];
+
+  // Reviewer-found false positives (real Chromium repro): a `<select>`'s
+  // ≥4 `<option>`s, an SVG bar chart's ≥4 `<rect>`s, a ≥4-button toolbar,
+  // and an `<article>`'s ≥4 `<p>`s all pattern-match "≥4 same-signature
+  // children" without being a data table. `select`/`datalist`/`svg` are
+  // excluded as containers outright (closest() below); leaf-ish row tags
+  // (plus anything in the SVG namespace) are excluded per-row regardless
+  // of container.
+  const LEAF_ROW_TAGS = new Set(['OPTION', 'P', 'SPAN', 'BUTTON', 'A', 'BR', 'HR']);
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const isLeafish = (el) => LEAF_ROW_TAGS.has(el.tagName) || el.namespaceURI === SVG_NS;
+  // A real data row either has internal structure (≥2 cell-like children)
+  // or carries its own text (e.g. a flat `<div class="card">label</div>`
+  // row) — a leaf-tagged element never qualifies even if both are true.
+  const looksLikeRow = (el) => !isLeafish(el) && (el.children.length >= 2 || txt(el).length > 0);
+
+  // Containers that are themselves a different, already-handled widget
+  // type (real table, nav, list, select, svg, or another ARIA
+  // table/grid/listbox/menu/tablist/nav) are never candidates for the
+  // repeated-fallback tier — this also catches an ARIA grid's internal
+  // `rowgroup` wrapper, which otherwise independently pattern-matches
+  // "≥4 same-signature [role=row] children" and would double-count the
+  // same grid as both "aria" and "repeated".
+  const REPEATED_EXCLUDE_SELECTOR =
+    'table, nav, ul, ol, select, datalist, svg, ' +
+    '[role="table"], [role="grid"], [role="treegrid"], [role="listbox"], ' +
+    '[role="menu"], [role="tablist"], [role="navigation"]';
+
+  // Elements with no id / data-testid / name / aria-label / placeholder
+  // fall back to a bare tag-name selector (`sel()`'s last resort) — e.g.
+  // plain `"div"`. That's useless (and actively dangerous: Playwright's
+  // strict-mode locator throws on a non-unique match) as a selector for
+  // a *detected* widget, so the repeated-fallback tier refuses to emit
+  // one at all rather than hand back a selector nobody can safely click.
+  // Must mirror `sel()`'s own fallback chain exactly — this function
+  // exists to answer "will `sel()` return something other than a bare
+  // tag name for this element?", so a mismatch here silently reintroduces
+  // the bare-tag problem it's meant to guard against (real regression:
+  // a gwp-admin search `<input placeholder="...">` with no other
+  // attributes was being dropped before `sel()` grew the placeholder
+  // fallback below was mirrored here too).
+  const hasStableSelector = (el) =>
+    Boolean(
+      el.id ||
+      el.getAttribute('data-testid') ||
+      (['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) && el.getAttribute('name')) ||
+      el.getAttribute('aria-label') ||
+      ((el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && el.getAttribute('placeholder'))
+    );
+
+  // Climbs at most 3 ancestor levels looking for a preceding heading —
+  // unbounded climbing previously walked all the way to a page-level H1
+  // and attributed it to every table on the page.
+  const nearbyHeading = (el) => {
+    let node = el;
+    let depth = 0;
+    while (node && depth < 3) {
+      let sib = node.previousElementSibling;
+      while (sib) {
+        if (/^H[1-6]$/.test(sib.tagName) || sib.getAttribute('role') === 'heading') {
+          const t = txt(sib);
+          if (t) return t;
+        }
+        sib = sib.previousElementSibling;
+      }
+      node = node.parentElement;
+      depth++;
+      if (!node || node === document.body) break;
+    }
+    return '';
+  };
+
+  const tableLabel = (el, captionEl) => {
+    if (captionEl) {
+      const c = txt(captionEl);
+      if (c) return c;
+    }
+    const aria = el.getAttribute('aria-label');
+    if (aria) return aria;
+    return nearbyHeading(el);
+  };
+
+  // a. native <table>. Uses the table-specific DOM API (`.caption`,
+  // `.tHead`, `.tBodies`) instead of descendant selectors like
+  // `querySelectorAll('tbody tr')` — those are *this table's own*
+  // caption/head/body per spec (never reach into a nested <table> inside
+  // a cell), whereas a descendant selector would double-count a nested
+  // table's rows/headers as this table's.
+  [...document.querySelectorAll('table')].forEach((el) => {
+    seenTableEls.add(el);
+    const theadEl = el.tHead;
+    const headers = theadEl
+      ? [...theadEl.querySelectorAll(':scope > tr > th')].map(txt).filter(Boolean).slice(0, 20)
+      : [];
+    const bodyRows = el.tBodies.length
+      ? [...el.tBodies].flatMap(tb => [...tb.rows])
+      : [...el.rows].filter(r => !theadEl || !theadEl.contains(r));
+    const firstRow = bodyRows[0] || el.rows[0] || null;
+    tables.push({
+      index: tables.length,
+      selector: sel(el),
+      label: tableLabel(el, el.caption),
+      headers,
+      column_count: headers.length || (firstRow ? firstRow.children.length : 0),
+      row_count: bodyRows.length,
+      detection: 'native',
+      selector_unique: hasStableSelector(el),
+    });
+  });
+
+  // b. ARIA table/grid/treegrid, excluding anything already native.
+  [...document.querySelectorAll('[role="table"], [role="grid"], [role="treegrid"]')].forEach((el) => {
+    if (seenTableEls.has(el) || el.closest('table')) return;
+    seenTableEls.add(el);
+    const headers = [...el.querySelectorAll('[role="columnheader"]')].map(txt).filter(Boolean).slice(0, 20);
+    const rows = [...el.querySelectorAll('[role="row"]')]
+      .filter(r => !r.querySelector(':scope > [role="columnheader"]'));
+    const firstDataRow = rows[0] || null;
+    const column_count = headers.length || (
+      firstDataRow
+        ? firstDataRow.querySelectorAll(':scope > [role="cell"], :scope > [role="gridcell"]').length
+        : 0
+    );
+    tables.push({
+      index: tables.length,
+      selector: sel(el),
+      label: tableLabel(el, null),
+      headers,
+      column_count,
+      row_count: rows.length,
+      detection: 'aria',
+      selector_unique: hasStableSelector(el),
+    });
+  });
+
+  // c. fallback: ≥4 repeated same-signature (tagName + sorted classList)
+  // children in one container, skipping already-claimed widget types
+  // (`REPEATED_EXCLUDE_SELECTOR`) and leaf-ish rows (`looksLikeRow`).
+  // Signature grouping keeps us from matching an unrelated mix of
+  // siblings (e.g. a header + N cards) as "the rows".
+  //
+  // Known trade-offs (reviewed + accepted, not bugs):
+  //   1. Unlike native/aria (always emitted, flagged `selector_unique:
+  //      false` when the selector is just a bare tag), this tier refuses
+  //      to emit anything without a *stable* container selector at all.
+  //      Deliberate asymmetry: native/aria are structurally confident
+  //      detections even when the selector happens to be unstable,
+  //      whereas "repeated" is already a low-confidence guess — stacking
+  //      an unusable selector on top of that guess isn't worth surfacing.
+  //   2. `A` is in `LEAF_ROW_TAGS`, so a list where the *entire row* is a
+  //      link (`<a class="row">...</a>` repeated N times) is never
+  //      detected — it looks leaf-ish like a plain CTA, not a data row.
+  //      Known gap, not handled here.
+  //   3. The greedy containment-dedup (below) picks by raw row *count*,
+  //      not depth. If a container's rows themselves have more same-
+  //      signature cells than the container has rows (e.g. 3 rows of 6
+  //      cells each), the row-level candidate could rank above the
+  //      container-level one and get picked instead. Rare in practice
+  //      (real data tables have more rows than columns) — not handled.
+  const signature = (el) => el.tagName + '|' + [...el.classList].sort().join('.');
+  const repeatedCandidates = [];
+  [...document.querySelectorAll('body *')].forEach((container) => {
+    if (container.tagName === 'SCRIPT' || container.tagName === 'STYLE') return;
+    // No separate "is this nested inside an already-claimed element?"
+    // check needed: by this point `seenTableEls` only holds native
+    // <table> elements and ARIA table/grid/treegrid elements (tiers a/b
+    // above), and `REPEATED_EXCLUDE_SELECTOR` already includes `table`
+    // and `[role="table"/"grid"/"treegrid"]` — so `closest()` below
+    // catches every such ancestor (at any depth) on its own.
+    if (seenTableEls.has(container)) return;
+    if (container.closest(REPEATED_EXCLUDE_SELECTOR)) return;
+    if (!hasStableSelector(container)) return;
+    const children = [...container.children].filter(
+      c => c.tagName !== 'SCRIPT' && c.tagName !== 'STYLE'
+    );
+    if (children.length < 4) return;
+    const groups = new Map();
+    children.forEach((c) => {
+      const s = signature(c);
+      if (!groups.has(s)) groups.set(s, []);
+      groups.get(s).push(c);
+    });
+    let best = null;
+    groups.forEach((group) => {
+      if (group.length >= 4 && group.every(looksLikeRow) && (!best || group.length > best.length)) {
+        best = group;
+      }
+    });
+    if (best) repeatedCandidates.push({ container, rows: best });
+  });
+  // Highest row-count first, then greedily skip any candidate nested
+  // inside (or wrapping) one already picked — otherwise a 10-row list
+  // whose rows are themselves ≥4-cell containers would surface as both
+  // "the list" AND "each row" as separate table modules.
+  repeatedCandidates.sort((a, b) => b.rows.length - a.rows.length);
+  const pickedRepeated = [];
+  for (const rc of repeatedCandidates) {
+    if (pickedRepeated.some(p =>
+      p.container.contains(rc.container) || rc.container.contains(p.container)
+    )) continue;
+    pickedRepeated.push(rc);
+    if (pickedRepeated.length >= 5) break; // bounded like navs/ctas/layout_warnings below
+  }
+  pickedRepeated.forEach((rc) => {
+    seenTableEls.add(rc.container);
+    tables.push({
+      index: tables.length,
+      selector: sel(rc.container),
+      label: tableLabel(rc.container, null),
+      headers: [],
+      column_count: 0,
+      row_count: rc.rows.length,
+      detection: 'repeated',
+      selector_unique: true, // guaranteed by the hasStableSelector() guard above
+    });
+  });
+
+  // Fields that live outside any <form> — search boxes / filter bars in
+  // gwp-admin-style back offices are frequently bare inputs next to a
+  // data table, not wrapped in <form>, so the form-scoped collector above
+  // never sees them. Also excludes anything inside an already-detected
+  // table/grid (e.g. a per-row selection checkbox) — that's the table's
+  // concern, not a standalone filter field. Fields without a stable
+  // selector (no id/data-testid/name/aria-label — `hasStableSelector()`,
+  // same guard as the repeated-table tier) are dropped outright rather
+  // than just de-duped: a Playwright locator built from a bare tag name
+  // is unusable the moment there's more than one such field on the page,
+  // so there's nothing useful left to de-dupe down to. The de-dupe pass
+  // still runs after that as a backstop for the (stable-but-not-unique)
+  // case of several elements legitimately sharing one selector, e.g. a
+  // same-`name` radio group.
+  const seenStandaloneSelectors = new Set();
+  const standalone_fields = [...document.querySelectorAll('input:not([type=hidden]), textarea, select')]
+    .filter(el => !el.closest('form'))
+    .filter(el => !el.closest('table, [role="grid"], [role="table"], [role="treegrid"]'))
+    .filter(el => hasStableSelector(el))
+    .filter(el => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return false;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden' || cs.display === 'none') return false;
+      return true;
+    })
+    .map(el => ({
+      label: labelFor(el),
+      selector: sel(el),
+      type: el.tagName === 'INPUT' ? (el.type || 'text') : el.tagName.toLowerCase(),
+      required: el.required || el.getAttribute('aria-required') === 'true',
+    }))
+    .filter(f => {
+      if (seenStandaloneSelectors.has(f.selector)) return false;
+      seenStandaloneSelectors.add(f.selector);
+      return true;
+    })
+    .slice(0, 30);
+
   // Layout warnings: visible elements whose content overflows their container.
   // Threshold tuning: horizontal >2px is almost always a real break (text
   // 跑版, hard-px width, etc.). Vertical <=10px is usually line-height /
@@ -361,7 +643,7 @@ _DOM_PROBE_JS = r"""
       };
     });
 
-  return { forms, navs, dialogs, sections, ctas, layout_warnings };
+  return { forms, navs, dialogs, sections, ctas, tables, standalone_fields, layout_warnings };
 }
 """
 
@@ -371,6 +653,61 @@ def _slug(text: str, fallback: str) -> str:
         return fallback
     s = re.sub(r"[^\w]+", "_", text.lower()).strip("_")
     return s or fallback
+
+
+def _table_candidate_tcs(headers: list[str], detection: str) -> list[str]:
+    """Candidate TCs for a `kind: "table"` module.
+
+    Always covers five scenarios: row load/empty-state, pagination,
+    column sort, search/filter, row click → detail. When `detection`
+    is "repeated" (a heuristic guess at div-based row structures, not a
+    real `<table>`/ARIA grid), the wording is hedged ("疑似資料列表")
+    instead of asserting it's definitely a table/grid. When `headers`
+    is non-empty, the sort TC references the first header by name to
+    make it directly actionable.
+    """
+    conservative = detection == "repeated"
+    subject = "疑似資料列表" if conservative else "表格"
+    tcs = [
+        f"{subject}載入後應有資料列（row_count > 0 或顯示空狀態提示）",
+        f"{subject}切換分頁後列內容應變更，且列數應符合 page size（若有分頁）",
+    ]
+    if headers:
+        tcs.append(f"點擊「{headers[0]}」欄位標題排序後，資料應依該欄重新排序")
+    else:
+        tcs.append(f"{subject}欄位排序點擊後應依該欄排序（若支援排序）")
+    tcs.append(f"{subject}搜尋／過濾後列數應減少，且內容與條件相符（若支援搜尋／過濾）")
+    tcs.append(f"點擊{subject}中任一列（若可點擊）應開啟詳情")
+    return tcs
+
+
+def _implicit_form_candidate_tcs(fields: list[dict]) -> list[str]:
+    """Candidate TCs for the aggregated `standalone_fields` module.
+
+    Deliberately excludes wording that native-form TCs use but doesn't
+    match either the field semantics or `_render_implicit_form_test`'s
+    actual rendering:
+      - "送出/提交"（submit）— these fields have no enclosing <form>/submit
+        button; the "submission" is implicit (Enter key, live filter,
+        etc.), not a button click.
+      - "只填其他欄位、X 留空"（single-field-empty）— reviewer-flagged
+        conflict: `runners/pytest_playwright._extract_single_empty_label`
+        pattern-matches that exact "留空" phrasing to render a
+        fill-everything-but-X test, which contradicts "忽略該條件"
+        (implicit filters just ignore an absent condition, they don't
+        validate required-ness) and doesn't match how
+        `_render_implicit_form_test` actually renders (fill one field,
+        press Enter).
+      - Email format-validation wording — `_render_implicit_form_test`
+        always prefers a text/search field as the one it fills; an email
+        field is only ever touched as a last-resort fallback (no text-
+        like field at all), so asserting "format error" behavior here
+        would describe an interaction the renderer usually never
+        performs (review N4).
+    """
+    tcs: list[str] = ["輸入關鍵字後按 Enter 應觸發查詢／過濾"]
+    tcs.append("清空輸入應還原列表")
+    return tcs
 
 
 def _build_modules(structure: dict) -> list[dict]:
@@ -465,6 +802,42 @@ def _build_modules(structure: dict) -> list[dict]:
                 f"點擊「{text}」應觸發對應動作（導頁／開 dialog／送 API）",
                 f"「{text}」在 loading 狀態下應禁用以避免重複觸發",
             ],
+        })
+
+    for t in structure.get("tables") or []:
+        headers = t.get("headers") or []
+        detection = t.get("detection") or "native"
+        label = t.get("label") or ""
+        name = f"{_slug(label, 'table')}_table_{t['index']}"
+        modules.append({
+            "kind": "table",
+            "name": name,
+            "selectors": {"container": t.get("selector")},
+            "metadata": {
+                "headers": headers,
+                "column_count": t.get("column_count"),
+                "row_count": t.get("row_count"),
+                "detection": detection,
+                "selector_unique": t.get("selector_unique", True),
+            },
+            "candidate_tcs": _table_candidate_tcs(headers, detection),
+        })
+
+    standalone_fields = structure.get("standalone_fields") or []
+    if standalone_fields:
+        modules.append({
+            "kind": "form",
+            "name": "implicit_form_0",
+            "selectors": {
+                "container": None,
+                "fields": standalone_fields,
+                "submit": None,
+            },
+            "metadata": {
+                "implicit": True,
+                "field_count": len(standalone_fields),
+            },
+            "candidate_tcs": _implicit_form_candidate_tcs(standalone_fields),
         })
 
     return modules

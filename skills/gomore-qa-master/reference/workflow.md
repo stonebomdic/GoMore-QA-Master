@@ -86,19 +86,37 @@ run_tests(filter="<new_test_slug>")  # verify the generated test runs
   module classifier missed it. Surface the raw output and let the
   user choose which module to feed to `generate_test`.
 - A `form`/`cta`/`table`/`dialog` module now carries `metadata.visible`
-  — an actual rendered-visibility check, separate from `dialog`'s own
-  `open` attribute-state flag. analyzer still records a hidden element
-  as a module (e.g. a closed logout-confirm dialog's cancel/confirm
-  buttons and its own empty `<form>`, or a collapsed sidebar's logout
-  cta) — the user needs to know it exists — but `auto_generate_tests`
-  renders anything flagged `visible: false` as an existence-only
-  skeleton (`to_be_attached()` + a TODO to add the real trigger step)
-  instead of a guaranteed-red `click`/`fill`/`to_be_visible()`. A
-  `table` module that IS visible gets real row-count/header assertions
-  (scoped by `detection`: native/aria get a real row-count check when
-  analysis-time `row_count > 0` plus a first-header `to_contain_text`
-  when `headers` is non-empty; `repeated` stays visibility-only) rather
-  than the old bare `to_be_visible()` + TODO.
+  — an actual rendered-visibility check (aligned with Playwright's own
+  definition: non-empty bounding box + `visibility !== hidden`, plus a
+  cheap fully-offscreen check; deliberately NOT `opacity` — Playwright
+  itself treats `opacity:0` as visible/actionable, and so does this, to
+  avoid wrongly dropping a `opacity:0` custom MUI/antd-style checkbox),
+  separate from `dialog`'s own `open` attribute-state flag. This is
+  narrower than "detects any hidden/collapsed element": it only catches
+  `display:none` or fully-offscreen hiding (e.g.
+  `position:absolute; left:-9999px`) — a sidebar collapsed via
+  `transform` or `width:0; overflow:hidden` keeps a non-zero,
+  in-viewport bounding box and is NOT flagged. analyzer still records a
+  hidden element as a module (e.g. a closed logout-confirm dialog's
+  cancel/confirm buttons and its own empty `<form>`, or an off-canvas
+  logout cta) — the user needs to know it exists — but
+  `auto_generate_tests` renders anything flagged `visible: false` as an
+  existence-only skeleton (`to_be_attached()` + a TODO to add the real
+  trigger step) instead of a guaranteed-red
+  `click`/`fill`/`to_be_visible()`; a `cta` with `metadata.label_text`
+  locates by `.filter(has_text=...)` rather than a bare `.first` (which
+  would pass against ANY matching element on the page, not the one
+  analysis actually found). A `table` module that IS visible gets real
+  row-count/header assertions (scoped by `detection`: native/aria get a
+  real row-count check — via a `:scope`-anchored locator that covers
+  both an HTML-parsed table's auto `<tbody>` and a DOM-API-built
+  table's lack of one — when analysis-time `row_count > 0`, plus a
+  first-header check against the whole `thead` compared via
+  `use_inner_text=True` (never pinned to "the first `<th>`", which may
+  be blank, nor compared via plain `textContent`, which can diverge
+  from the probe's `innerText` reading under CSS like
+  `text-transform`) when `headers` is non-empty; `repeated` stays
+  visibility-only) rather than the old bare `to_be_visible()` + TODO.
 
 ---
 

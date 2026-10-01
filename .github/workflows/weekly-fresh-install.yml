@@ -1,0 +1,60 @@
+name: Weekly fresh install
+
+# 目的：ci.yml 的 smoke/sample/dogfood job 全部用 actions/setup-python 的
+# pip cache，長期可能靠著快取裡的舊 wheel 掩蓋「真正乾淨環境裝不起來」
+# 的問題（例如 mcp 2.x 系列那種 fresh install 就直接炸掉的坑）。這支
+# workflow 刻意不開 pip cache，每週固定跑一次全新環境安裝 + import +
+# smoke 測試，並把目前裝到的套件版本 vs. 可更新版本列進 Job Summary，
+# 當成每週自動體檢，而不是等真的有人在乾淨環境裝壞了才發現。
+#
+# 不卡 CI 門檻：這支 workflow 不在 push/pull_request 觸發，失敗也不會
+# block 任何 PR——純粹是排程通知用途。`pip list --outdated` 那步特別
+# 加上 `continue-on-error: true`，避免「有新版本可升級」這種正常訊息
+# 被誤判成 job failure。
+
+on:
+  schedule:
+    # 每週一 00:00 UTC（台北時間週一 08:00）
+    - cron: "0 0 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  fresh-install:
+    name: fresh install · Python 3.12 (no cache)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 (no pip cache)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # 刻意不設定 cache: pip —— 這支 workflow 要驗證的就是「不吃任何
+          # 既有快取、從零開始」裝得起來。
+
+      - name: Fresh install with [api] extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[api]'
+
+      - name: Import sanity check
+        run: python -c "import gomore_qa_master.server"
+
+      - name: Smoke-level tests (no browser required)
+        # 比照 ci.yml 的 smoke job：只跑不需要瀏覽器的 tests/，不跑
+        # tests_project/（需要 Playwright + chromium，交給 ci.yml 的
+        # sample job 負責，這裡只驗證「裝起來、import 起來、基本測試
+        # 跑得動」）。
+        run: pytest tests/ -q -x
+
+      - name: Outdated dependencies (informational, non-blocking)
+        if: always()
+        continue-on-error: true
+        run: |
+          {
+            echo "## pip list --outdated"
+            echo ""
+            echo '```'
+            pip list --outdated || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

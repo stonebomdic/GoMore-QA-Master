@@ -346,6 +346,43 @@ def _pick_form_api(url: str, module: dict, endpoints: list[dict]) -> dict | None
     return None
 
 
+def _collect_page_tables(modules: list[dict]) -> list[dict]:
+    """Visible native `table` modules with analysis-time `row_count > 0`,
+    reduced to just the one field `PytestPlaywrightRunner
+    ._render_implicit_form_test`'s commented-out cross-module hint
+    needs (`row_count`) — kept minimal on purpose so it can't be mistaken
+    for a full table-module payload by anything reading `module["page_tables"]`.
+
+    Why this exists at all: "搜尋 → 列數變化" is a real, common assertion
+    a user would want, but generating it as a LIVE assertion is fail-open
+    on false reds — search may need an extra button click to trigger, or
+    may render a "no data" row instead of truly 0 rows, either of which
+    would redden a freshly generated test with nothing wrong in the app.
+    So the renderer only ever emits it pre-commented; this just supplies
+    the row_count fact it needs to do that.
+
+    `detection != "native"` (aria/repeated) and `visible is False` tables
+    are both excluded — aria/repeated row locators aren't reliable enough
+    to assert on cross-module either, and a hidden table's row_count
+    isn't a fact about what the user will actually see.
+    """
+    out: list[dict] = []
+    for m in modules:
+        if m.get("kind") != "table":
+            continue
+        md = m.get("metadata")
+        if not isinstance(md, dict):
+            continue
+        if md.get("detection") != "native":
+            continue
+        if md.get("visible") is False:
+            continue
+        row_count = md.get("row_count")
+        if isinstance(row_count, int) and row_count > 0:
+            out.append({"row_count": row_count})
+    return out
+
+
 def _select_candidate_tcs(candidates: list[str], limit: int) -> list[str]:
     """First `limit` TCs, but guarantee a happy-path TC is among them when
     one exists in `candidates`.
@@ -643,11 +680,21 @@ async def _auto_generate_tests(
         telemetry.log_discovered_modules(url, analysis.get("modules", []) or [])
 
     endpoints = (analysis.get("api_endpoints") or []) if isinstance(analysis, dict) else []
+    modules_list = analysis.get("modules", []) or []
+    page_tables = _collect_page_tables(modules_list)
     generated: list[dict] = []
     used_filenames: set[str] = set()
-    for module in (analysis.get("modules", []) or []):
+    for module in modules_list:
         module_api = _pick_form_api(url, module, endpoints)
-        module_for_gen = {**module, "api": module_api} if module_api else module
+        # Copy rather than mutate `module` in place — `page_tables` is an
+        # auto_generate_tests-only enrichment (the implicit-form renderer's
+        # commented-out cross-module hint), not part of analyze_url's own
+        # module shape.
+        module_for_gen = dict(module)
+        if module_api:
+            module_for_gen["api"] = module_api
+        if page_tables:
+            module_for_gen["page_tables"] = page_tables
         candidates = module.get("candidate_tcs", []) or []
         module_name = module.get("name", "module")
         module_kind = module.get("kind") or "module"

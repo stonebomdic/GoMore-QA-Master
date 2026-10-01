@@ -1339,3 +1339,277 @@ def test_generate_test_dialog_module_non_bare_selector_open_on_load_true_no_firs
     content = (tmp_path / "test_dialog_welcome2.py").read_text()
     assert "#welcome-dialog" in content
     assert ".first" not in content
+
+
+# ---------------------------------------------------------------------------
+# metadata.visible is False — existence-only skeleton (W1 可信化)
+#
+# Real-site regression (gwp-admin /users, 9 筆產出 5 綠 4 紅): all 4 reds
+# were "隱藏元素被收為模組" — a closed logout-confirm dialog's cancel/
+# confirm buttons + its own empty <form>, and a collapsed sidebar's logout
+# cta. analyzer still records them as modules (the user needs to know they
+# exist) but flags `metadata.visible: False`; the renderer must render an
+# existence-only skeleton (goto → to_be_attached + TODO) instead of
+# click/fill/to_be_visible, all of which are guaranteed-red here.
+# ---------------------------------------------------------------------------
+
+
+def test_is_module_hidden_true_only_for_strict_false():
+    assert pw._module_is_hidden({"visible": False}) is True
+    assert pw._module_is_hidden({"visible": True}) is False
+    assert pw._module_is_hidden({"visible": None}) is False
+    assert pw._module_is_hidden({}) is False
+    assert pw._module_is_hidden(None) is False
+    assert pw._module_is_hidden(["not", "a", "dict"]) is False
+
+
+def test_generate_test_hidden_form_module_renders_existence_skeleton_only(runner, monkeypatch, tmp_path):
+    """A closed-dialog's empty `<form>` (metadata.visible=False): no
+    click/fill/to_be_visible anywhere, just an attached-assertion skeleton
+    + TODO."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "logout_form_0",
+        "selectors": {
+            "container": "#logout-form",
+            "fields": [{"selector": "#token", "type": "hidden"}],
+            "submit": None,
+        },
+        "metadata": {"method": "post", "action": "/logout", "field_count": 0, "visible": False},
+        "candidate_tcs": ["（需先觸發顯示）直接點擊送出，應有適當回應或無作用"],
+    }
+    runner.generate_test("desc", "test_hidden_form.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_hidden_form.py").read_text()
+    ast.parse(content)
+    assert "to_be_attached()" in content
+    assert "visible=False" in content
+    assert "TODO" in content
+    assert "觸發" in content
+    assert ".click(" not in content
+    assert ".fill(" not in content
+    assert "to_be_visible()" not in content
+
+
+def test_generate_test_hidden_cta_module_renders_existence_skeleton_only(runner, monkeypatch, tmp_path):
+    """A collapsed sidebar's logout cta (metadata.visible=False): no
+    get_by_role/click/has_text text-locator machinery — just the
+    existence skeleton."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "cta",
+        "name": "cta_confirm_logout",
+        "selectors": {"trigger": "button"},
+        "metadata": {"label_text": "確認登出", "tag": "button", "visible": False},
+    }
+    runner.generate_test("desc", "test_hidden_cta.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_hidden_cta.py").read_text()
+    ast.parse(content)
+    assert "to_be_attached()" in content
+    assert "TODO" in content
+    assert ".click(" not in content
+    assert ".fill(" not in content
+    assert "to_be_visible()" not in content
+    assert "get_by_role" not in content
+    assert "has_text" not in content
+    assert "page.locator('button').first" in content
+
+
+def test_generate_test_hidden_table_module_renders_existence_skeleton_only(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "table",
+        "name": "users_table_0",
+        "selectors": {"container": "table[data-testid=users]"},
+        "metadata": {
+            "headers": ["Name"], "column_count": 1, "row_count": 2,
+            "detection": "native", "visible": False,
+        },
+    }
+    runner.generate_test("desc", "test_hidden_table.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_hidden_table.py").read_text()
+    ast.parse(content)
+    assert "to_be_attached()" in content
+    assert "TODO" in content
+    assert "to_be_visible()" not in content
+    assert ".fill(" not in content
+    assert "not_to_have_count" not in content
+    assert "to_contain_text" not in content
+
+
+@pytest.mark.parametrize("kind", ["form", "cta", "table"])
+def test_generate_test_missing_visible_flag_treated_as_visible_compat(runner, monkeypatch, tmp_path, kind):
+    """Old module dicts (pre-feature analyzer output, or a hand-built
+    module in a caller/test) have no `visible` key at all in metadata —
+    must be treated as visible (normal render path), never routed into
+    the hidden skeleton."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    if kind == "form":
+        module = {
+            "kind": "form",
+            "name": "login_form",
+            "selectors": {"fields": [{"selector": "#email", "type": "email"}], "submit": "#submit"},
+            "metadata": {"method": "post", "action": "/login", "field_count": 1},
+        }
+    elif kind == "cta":
+        module = {
+            "kind": "cta",
+            "name": "cta_login",
+            "selectors": {"trigger": "button"},
+            "metadata": {"label_text": "登入", "tag": "button"},
+        }
+    else:
+        module = {
+            "kind": "table",
+            "name": "users_table_0",
+            "selectors": {"container": "table"},
+            "metadata": {"headers": [], "column_count": 0, "row_count": 0, "detection": "native"},
+        }
+    filename = f"test_compat_{kind}.py"
+    runner.generate_test("desc", filename, url="https://x.test", module=module)
+    content = (tmp_path / filename).read_text()
+    ast.parse(content)
+    assert "visible=False" not in content
+    assert "此元素載入時不可見" not in content
+
+
+# ---------------------------------------------------------------------------
+# table real assertions（Requirement B：保守、fail-closed 對假紅）
+# ---------------------------------------------------------------------------
+
+
+def test_generate_test_table_native_visible_with_rows_and_headers_renders_real_assertions(
+    runner, monkeypatch, tmp_path,
+):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "table",
+        "name": "users_table_0",
+        "selectors": {"container": "#users-table"},
+        "metadata": {
+            "headers": ["姓名", "Email"], "column_count": 2, "row_count": 5,
+            "detection": "native",
+        },
+    }
+    runner.generate_test("desc", "test_native_table.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_native_table.py").read_text()
+    ast.parse(content)
+    assert "table = page.locator('#users-table')" in content
+    assert "expect(table).to_be_visible()" in content
+    assert 'table.locator("tbody tr")' in content
+    assert "expect(rows).not_to_have_count(0)" in content
+    assert 'table.locator("thead th").first' in content
+    assert "to_contain_text('姓名')" in content
+    assert "分析時 0 列" not in content
+
+
+def test_generate_test_table_native_row_count_zero_skips_row_assertion(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "table",
+        "name": "empty_table_0",
+        "selectors": {"container": "#empty-table"},
+        "metadata": {"headers": [], "column_count": 0, "row_count": 0, "detection": "native"},
+    }
+    runner.generate_test("desc", "test_empty_table.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_empty_table.py").read_text()
+    ast.parse(content)
+    assert "expect(table).to_be_visible()" in content
+    assert "分析時 0 列" in content
+    assert "not_to_have_count" not in content
+    assert "to_contain_text" not in content
+
+
+def test_generate_test_table_aria_visible_with_rows_and_headers_renders_role_based_assertions(
+    runner, monkeypatch, tmp_path,
+):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "table",
+        "name": "products_table_0",
+        "selectors": {"container": "[data-testid=grid]"},
+        "metadata": {
+            "headers": ["SKU", "Name"], "column_count": 2, "row_count": 3,
+            "detection": "aria",
+        },
+    }
+    runner.generate_test("desc", "test_aria_table.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_aria_table.py").read_text()
+    ast.parse(content)
+    assert """table.locator('[role="row"]')""" in content
+    assert "expect(rows).not_to_have_count(0)" in content
+    assert """table.locator('[role="columnheader"]').first""" in content
+    assert "to_contain_text('SKU')" in content
+    assert 'table.locator("tbody tr")' not in content
+
+
+def test_generate_test_table_repeated_only_asserts_visible(runner, monkeypatch, tmp_path):
+    """`detection == "repeated"` is a heuristic div-row guess — no row/
+    header locator is reliable enough to assert on; only the container
+    visibility check is kept (matches `_table_candidate_tcs`'s existing
+    conservative wording for this tier)."""
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "table",
+        "name": "card_list_0",
+        "selectors": {"container": "#card-list"},
+        "metadata": {"headers": [], "column_count": 0, "row_count": 8, "detection": "repeated"},
+    }
+    runner.generate_test("desc", "test_repeated_table.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_repeated_table.py").read_text()
+    ast.parse(content)
+    assert "expect(table).to_be_visible()" in content
+    assert "not_to_have_count" not in content
+    assert "to_contain_text" not in content
+    assert "分析時 0 列" not in content
+
+
+# ---------------------------------------------------------------------------
+# implicit form — 跨模組「搜尋→列數變化」註解區塊（page_tables）
+# ---------------------------------------------------------------------------
+
+
+def test_generate_test_implicit_form_with_page_tables_adds_commented_cross_module_hint(
+    runner, monkeypatch, tmp_path,
+):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [{"label": "關鍵字", "selector": "#q", "type": "text", "required": False}],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 1},
+        "candidate_tcs": ["輸入關鍵字後按 Enter 應觸發查詢／過濾"],
+        "page_tables": [{"row_count": 12}],
+    }
+    runner.generate_test("desc", "test_search_with_table.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_search_with_table.py").read_text()
+    ast.parse(content)
+    assert "若本頁有資料表，可解除註解驗證搜尋過濾生效" in content
+    assert "# rows = page.locator('table').first.locator('tbody tr')" in content
+    assert "# expect(rows).not_to_have_count(12)" in content
+
+
+def test_generate_test_implicit_form_without_page_tables_has_no_cross_module_hint(
+    runner, monkeypatch, tmp_path,
+):
+    monkeypatch.setattr(pw, "PROJECT_ROOT", tmp_path)
+    module = {
+        "kind": "form",
+        "name": "implicit_form_0",
+        "selectors": {
+            "container": None,
+            "fields": [{"label": "關鍵字", "selector": "#q", "type": "text", "required": False}],
+            "submit": None,
+        },
+        "metadata": {"implicit": True, "field_count": 1},
+        "candidate_tcs": ["輸入關鍵字後按 Enter 應觸發查詢／過濾"],
+    }
+    runner.generate_test("desc", "test_search_no_table.py", url="https://x.test", module=module)
+    content = (tmp_path / "test_search_no_table.py").read_text()
+    ast.parse(content)
+    assert "若本頁有資料表" not in content
+    assert "not_to_have_count" not in content

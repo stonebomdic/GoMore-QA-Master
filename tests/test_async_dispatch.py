@@ -12,7 +12,10 @@ import time
 
 from gomore_qa_master import server
 
-SLOW_S = 0.3
+# 1.5s 而非 0.3s：CI 共用 runner 冷啟動時 get_runner_info 首次呼叫（import／
+# 插件探索）實測可達 0.37s，門檻太貼近會 flaky（PR #16 smoke 3.10）。
+# 斷言語意不變——快的 tool 仍須在慢的 sleep 結束前回來。
+SLOW_S = 1.5
 
 
 def _fake_run_tests(**kwargs):

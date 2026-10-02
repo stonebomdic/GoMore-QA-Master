@@ -897,6 +897,10 @@ Releases are distributed via internal Git. The flow:
    git push origin vX.Y.Z
    ```
 
+Release notes per version: [`CHANGELOG.md`](CHANGELOG.md). Upstream
+tracking status, per-commit adopt/reject decisions, and licensing
+watch-items for `kao273183/mk-qa-master`: [`docs/UPSTREAM.md`](docs/UPSTREAM.md).
+
 ---
 
 ## Contributing
